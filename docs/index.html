@@ -1,0 +1,526 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>squish — compress anything from your terminal</title>
+<meta name="description" content="squish is a free, open-source command that compresses videos, images, PDFs and audio in one go. Answer a few questions, get everything back smaller.">
+<meta property="og:title" content="squish — compress anything from your terminal">
+<meta property="og:description" content="Free and open source. Videos, images, PDFs and audio — one command, a few questions, originals untouched.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%23ff875f'/%3E%3Cstop offset='.5' stop-color='%23ff5faf'/%3E%3Cstop offset='1' stop-color='%23875fff'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect x='4' y='4' width='56' height='56' rx='15' fill='url(%23g)'/%3E%3Cpath d='M14 22l12 10-12 10M50 22L38 32l12 10' stroke='white' stroke-width='5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #fbf8f4; --bg2: #f3eee7; --card: #ffffff; --ink: #1c1917; --muted: #6b635b; --line: #e7e0d6;
+  --accent: #ff5faf; --accent2: #875fff; --ok: #16a34a;
+  --term: #15121c; --term-ink: #ebe7f5;
+  --grad: linear-gradient(120deg, #ff875f, #ff5faf 50%, #875fff);
+  --radius: 14px; --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --bg: #0f0d14; --bg2: #16131d; --card: #1b1724; --ink: #f2eff8; --muted: #a29cb6; --line: #2b2638; --term: #0b0a10; }
+}
+:root[data-theme="dark"] { --bg: #0f0d14; --bg2: #16131d; --card: #1b1724; --ink: #f2eff8; --muted: #a29cb6; --line: #2b2638; --term: #0b0a10; }
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 17px/1.6 "Instrument Sans", system-ui, -apple-system, sans-serif; -webkit-font-smoothing: antialiased; }
+a { color: inherit; }
+code, pre { font-family: var(--mono); }
+:not(pre) > code { font-size: .86em; background: var(--bg2); border: 1px solid var(--line); padding: .1em .4em; border-radius: 6px; }
+.wrap { max-width: 1060px; margin: 0 auto; padding-left: 20px; padding-right: 20px; }
+svg.i { width: 1em; height: 1em; vertical-align: -.14em; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+/* nav */
+nav { position: sticky; top: 0; z-index: 20; backdrop-filter: saturate(1.4) blur(12px); -webkit-backdrop-filter: saturate(1.4) blur(12px); background: color-mix(in srgb, var(--bg) 82%, transparent); border-bottom: 1px solid var(--line); }
+nav .wrap { display: flex; align-items: center; gap: 22px; height: 60px; }
+.logo { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 19px; text-decoration: none; letter-spacing: -.01em; }
+.logo svg { width: 28px; height: 28px; }
+nav .links { margin-left: auto; display: flex; align-items: center; gap: 22px; font-size: 15px; }
+nav .links a { text-decoration: none; color: var(--muted); }
+nav .links a:hover { color: var(--ink); }
+nav .links a.gh { display: inline-flex; align-items: center; gap: 7px; color: var(--ink); border: 1px solid var(--line); background: var(--card); padding: 6px 12px; border-radius: 999px; }
+@media (max-width: 680px) { nav .links a:not(.gh) { display: none; } }
+
+/* hero */
+.hero { padding-top: 64px; padding-bottom: 40px; text-align: center; }
+.badges { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+.pill { display: inline-flex; gap: 7px; align-items: center; font-size: 13px; color: var(--muted); border: 1px solid var(--line); background: var(--card); border-radius: 999px; padding: 5px 12px; text-decoration: none; }
+.pill.os { color: var(--ink); font-weight: 600; border-color: color-mix(in srgb, var(--accent2) 40%, var(--line)); background: color-mix(in srgb, var(--accent2) 8%, var(--card)); }
+.pill .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); }
+h1 { font-size: clamp(38px, 7vw, 70px); line-height: 1.03; letter-spacing: -.035em; margin: 22px auto 16px; max-width: 14ch; }
+h1 span { background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.lede { font-size: clamp(17px, 2.2vw, 20px); color: var(--muted); max-width: 42ch; margin: 0 auto 32px; }
+
+.install { display: flex; align-items: center; gap: 10px; max-width: 780px; margin: 0 auto; background: var(--term); color: var(--term-ink); border-radius: var(--radius); padding: 10px 10px 10px 18px; box-shadow: 0 20px 50px -24px rgba(135,95,255,.55); }
+.install code { flex: 1; text-align: left; font-size: 14.5px; overflow-x: auto; white-space: nowrap; padding: 6px 0; scrollbar-width: none; background: none; border: 0; color: var(--term-ink); }
+.install code::-webkit-scrollbar { display: none; }
+.install code::before { content: "$ "; color: #ff5faf; }
+.copy { flex: none; display: inline-flex; align-items: center; gap: 7px; font: 600 14px "Instrument Sans", sans-serif; border: 0; border-radius: 10px; padding: 10px 16px; cursor: pointer; color: #fff; background: var(--grad); transition: transform .1s; }
+.copy:active { transform: scale(.97); }
+.hint { color: var(--muted); font-size: 14px; margin-top: 14px; }
+
+/* terminal demo */
+.stage { position: relative; margin: 56px auto 0; max-width: 860px; }
+.terminal { background: var(--term); border-radius: 16px; overflow: hidden; text-align: left; border: 1px solid rgba(255,255,255,.07); box-shadow: 0 40px 90px -40px rgba(0,0,0,.65); }
+.tbar { display: flex; align-items: center; gap: 8px; padding: 13px 16px; background: rgba(255,255,255,.04); position: relative; }
+.tbar span { width: 12px; height: 12px; border-radius: 50%; background: #ff5f57; }
+.tbar span:nth-child(2) { background: #febc2e; } .tbar span:nth-child(3) { background: #28c840; }
+.tbar b { position: absolute; left: 0; right: 0; text-align: center; font: 500 12.5px var(--mono); color: #6f6987; pointer-events: none; }
+.screen { margin: 0; padding: 16px 22px 22px; color: var(--term-ink); font-size: 13px; line-height: 1.32; height: 560px; overflow: hidden; white-space: pre; font-variant-ligatures: none; }
+@media (max-width: 760px) { .screen { font-size: 8.6px; height: 440px; padding: 12px 12px 16px; } .folder { font-size: 12px; } .folder svg { width: 26px; height: 26px; } }
+.screen .cursor { display: inline-block; width: .6em; height: 1.15em; vertical-align: text-bottom; background: var(--term-ink); animation: blink 1s steps(2) infinite; }
+@keyframes blink { 50% { opacity: 0; } }
+.k-dim { color: #8a8a8a; } .k-rail { color: #585858; } .k-b { font-weight: 700; } .k-a { color: #ff5faf; } .k-a2 { color: #af87ff; }
+.k-ok { color: #87d787; } .k-warn { color: #ffd75f; } .k-info { color: #87d7ff; } .k-prompt { color: #87d787; }
+.drop-target { outline: 1px dashed transparent; transition: outline-color .2s; }
+.terminal.hover .screen { box-shadow: inset 0 0 0 2px rgba(135,95,255,.55); }
+
+.folder { position: absolute; left: 0; top: 0; white-space: nowrap; transform-origin: 0 0; z-index: 5; display: flex; align-items: center; gap: 10px; padding: 10px 14px 10px 10px; border-radius: 12px; background: var(--card); border: 1px solid var(--line); color: var(--ink); font: 600 14px "Instrument Sans", sans-serif; box-shadow: 0 18px 40px -12px rgba(0,0,0,.45); opacity: 0; pointer-events: none; transition: transform .9s cubic-bezier(.3,.7,.3,1), opacity .25s; }
+.folder svg { width: 34px; height: 34px; }
+.folder small { display: block; font-weight: 500; font-size: 11.5px; color: var(--muted); }
+.mousept { position: absolute; left: 0; top: 0; z-index: 6; width: 22px; height: 22px; opacity: 0; pointer-events: none; transition: transform .9s cubic-bezier(.3,.7,.3,1), opacity .25s; }
+
+/* sections */
+section { padding: 76px 0; }
+section.alt { background: var(--bg2); border-block: 1px solid var(--line); }
+h2 { font-size: clamp(28px, 4vw, 40px); letter-spacing: -.025em; line-height: 1.1; margin: 0 0 12px; }
+.sub { color: var(--muted); max-width: 60ch; margin: 0 0 36px; }
+.grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 22px; }
+.ic { width: 44px; height: 44px; border-radius: 12px; display: grid; place-items: center; margin-bottom: 14px; color: #fff; }
+.ic svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.ic.v { background: linear-gradient(135deg, #ff875f, #ff5f87); }
+.ic.im { background: linear-gradient(135deg, #ff5f87, #ff5faf); }
+.ic.p { background: linear-gradient(135deg, #d75fd7, #af5fff); }
+.ic.a { background: linear-gradient(135deg, #af5fff, #875fff); }
+.card h3 { margin: 0 0 6px; font-size: 19px; }
+.card p { margin: 0 0 12px; color: var(--muted); font-size: 15.5px; }
+.card .fmt { font: 12px/1.7 var(--mono); color: var(--muted); }
+
+.steps { counter-reset: s; display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+.step { position: relative; padding: 22px 22px 22px 66px; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); }
+.step::before { counter-increment: s; content: counter(s); position: absolute; left: 20px; top: 20px; width: 30px; height: 30px; border-radius: 50%; background: var(--grad); color: #fff; font-weight: 700; display: grid; place-items: center; font-size: 15px; }
+.step h3 { margin: 0 0 4px; font-size: 17px; } .step p { margin: 0; color: var(--muted); font-size: 15.5px; }
+
+pre.code { background: var(--term); color: var(--term-ink); padding: 18px 20px; border-radius: var(--radius); overflow-x: auto; font-size: 14px; line-height: 1.7; margin: 0; }
+pre.code .p { color: #ff5faf; user-select: none; }
+.recipes { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 400px), 1fr)); }
+.recipe { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+.recipe h3 { margin: 0; padding: 18px 20px 4px; font-size: 17px; }
+.recipe p { margin: 0; padding: 0 20px 14px; color: var(--muted); font-size: 15px; }
+.recipe pre.code { border-radius: 0; }
+
+/* open source */
+.oss { display: grid; gap: 28px; grid-template-columns: 1.1fr 1fr; align-items: center; }
+@media (max-width: 820px) { .oss { grid-template-columns: 1fr; } }
+.oss ul { list-style: none; padding: 0; margin: 0 0 28px; display: grid; gap: 14px; }
+.oss li { display: flex; gap: 14px; align-items: flex-start; }
+.oss li .ck { flex: none; width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center; background: color-mix(in srgb, var(--accent2) 14%, transparent); color: var(--accent2); }
+.oss li .ck svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+.oss li b { display: block; }
+.oss li span { color: var(--muted); font-size: 15.5px; }
+.btns { display: flex; flex-wrap: wrap; gap: 12px; }
+.btn { display: inline-flex; align-items: center; gap: 8px; text-decoration: none; font-weight: 600; font-size: 15px; padding: 11px 18px; border-radius: 12px; border: 1px solid var(--line); background: var(--card); }
+.btn.primary { border: 0; color: #fff; background: var(--grad); }
+.btn svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.licence { background: var(--term); color: #c9c3dc; border-radius: 16px; padding: 22px 24px; font: 12.5px/1.65 var(--mono); position: relative; overflow: hidden; }
+.licence::before { content: ""; position: absolute; inset: 0 0 auto 0; height: 3px; background: var(--grad); }
+.licence .t { color: #fff; font-weight: 700; }
+.licence .c { color: #6f6987; }
+.licence .s { color: #87d787; }
+
+table { width: 100%; border-collapse: collapse; font-size: 15px; background: var(--card); border: 1px solid var(--line); }
+th, td { text-align: left; padding: 12px 16px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); background: var(--bg2); }
+tr:last-child td { border-bottom: 0; }
+td:first-child { white-space: nowrap; font-family: var(--mono); font-size: 14px; }
+.tablewrap { overflow-x: auto; border-radius: var(--radius); border: 1px solid var(--line); }
+.tablewrap table { border: 0; }
+
+details { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px 20px; margin-bottom: 10px; }
+summary { cursor: pointer; font-weight: 600; list-style: none; display: flex; justify-content: space-between; gap: 16px; }
+summary::-webkit-details-marker { display: none; }
+summary::after { content: "+"; color: var(--muted); font-size: 20px; line-height: 1; }
+details[open] summary::after { content: "–"; }
+details p { color: var(--muted); margin: 10px 0 0; font-size: 15.5px; }
+
+footer { padding: 40px 0 60px; color: var(--muted); font-size: 14px; text-align: center; }
+footer .heart { color: #ff5faf; }
+.toast { position: fixed; left: 50%; bottom: 24px; transform: translate(-50%, 20px); opacity: 0; background: var(--ink); color: var(--bg); padding: 10px 18px; border-radius: 999px; font-size: 14px; transition: .2s; pointer-events: none; z-index: 30; }
+.toast.on { opacity: 1; transform: translate(-50%, 0); }
+</style>
+</head>
+<body>
+
+<!-- Icon sprites -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ff875f"/><stop offset=".5" stop-color="#ff5faf"/><stop offset="1" stop-color="#875fff"/></linearGradient>
+  </defs>
+  <symbol id="i-logo" viewBox="0 0 64 64"><rect x="2" y="2" width="60" height="60" rx="16" fill="url(#lg)"/><path d="M14 22l12 10-12 10M50 22L38 32l12 10" stroke="#fff" stroke-width="5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-video" viewBox="0 0 24 24"><rect x="2" y="5" width="14" height="14" rx="3"/><path d="M16 10l6-3.5v11L16 14"/></symbol>
+  <symbol id="i-image" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="9" cy="9" r="2"/><path d="M21 15l-4.5-4.5L6 21"/></symbol>
+  <symbol id="i-doc" viewBox="0 0 24 24"><path d="M14 2H7a3 3 0 0 0-3 3v14a3 3 0 0 0 3 3h10a3 3 0 0 0 3-3V8z"/><path d="M14 2v6h6M8 13h8M8 17h5"/></symbol>
+  <symbol id="i-audio" viewBox="0 0 24 24"><path d="M3 10v4M7 7v10M11 4v16M15 8v8M19 6v12"/></symbol>
+  <symbol id="i-code" viewBox="0 0 24 24"><path d="M16 18l6-6-6-6M8 6l-6 6 6 6"/></symbol>
+  <symbol id="i-star" viewBox="0 0 24 24"><path d="M12 3l2.8 5.7 6.2.9-4.5 4.4 1.1 6.2L12 17.3 6.4 20.2l1.1-6.2L3 9.6l6.2-.9z"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7"/></symbol>
+  <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M7 17L17 7M9 7h8v8"/></symbol>
+  <symbol id="i-branch" viewBox="0 0 24 24"><circle cx="6" cy="5" r="2.5"/><circle cx="6" cy="19" r="2.5"/><circle cx="18" cy="8" r="2.5"/><path d="M6 7.5v9M18 10.5c0 4-6 3.5-11 6"/></symbol>
+</svg>
+
+<nav>
+  <div class="wrap">
+    <a class="logo" href="#"><svg><use href="#i-logo"/></svg>squish</a>
+    <div class="links">
+      <a href="#what">What it does</a>
+      <a href="#usage">Usage</a>
+      <a href="#open-source">Open source</a>
+      <a href="#faq">FAQ</a>
+      <a class="gh" href="https://github.com/romainmaxxing/squish-mac-compressor"><svg class="i"><use href="#i-code"/></svg>Source</a>
+    </div>
+  </div>
+</nav>
+
+<header class="hero wrap">
+  <div class="badges">
+    <a class="pill os" href="#open-source"><svg class="i"><use href="#i-code"/></svg>Free &amp; open source · MIT</a>
+    <span class="pill"><span class="dot"></span>macOS &amp; Linux</span>
+  </div>
+  <h1>Compress <span>anything</span> from your terminal.</h1>
+  <p class="lede">Videos, photos, PDFs and audio. Drop a folder on squish, answer a few questions — or just hit Enter — and get everything back smaller.</p>
+
+  <div class="install">
+    <code id="cmd">curl -fsSL https://raw.githubusercontent.com/romainmaxxing/squish-mac-compressor/main/install.sh | bash</code>
+    <button class="copy" data-copy="#cmd"><svg class="i"><use href="#i-copy"/></svg><span>Copy</span></button>
+  </div>
+  <p class="hint">Paste it in Terminal, open a new window, type <code>squish</code>. No admin password, no account, no tracking.</p>
+
+  <div class="stage" id="stage">
+    <div class="terminal" id="term" aria-label="Animated demo of squish in a terminal">
+      <div class="tbar"><span></span><span></span><span></span><b>~ — zsh</b></div>
+      <pre class="screen" id="screen"></pre>
+    </div>
+    <div class="folder" id="folder">
+      <svg viewBox="0 0 40 40"><path d="M4 11a4 4 0 0 1 4-4h8l4 4h12a4 4 0 0 1 4 4v14a4 4 0 0 1-4 4H8a4 4 0 0 1-4-4z" fill="url(#lg)"/><path d="M4 16h32" stroke="rgba(255,255,255,.45)" stroke-width="2"/></svg>
+      <span>Vacation<small>48 items</small></span>
+    </div>
+    <svg class="mousept" id="mouse" viewBox="0 0 24 24"><path d="M5 3l14 8-6 1.5L10 19z" fill="#fff" stroke="#111" stroke-width="1.4" stroke-linejoin="round"/></svg>
+  </div>
+</header>
+
+<section id="what" class="alt">
+  <div class="wrap">
+    <h2>One command for every heavy file.</h2>
+    <p class="sub">squish looks at what's in the folder and only asks about what it found. The recommended setting is always one Enter away.</p>
+    <div class="grid">
+      <div class="card"><div class="ic v"><svg><use href="#i-video"/></svg></div><h3>Videos</h3><p>Typically 60–80% smaller with no visible difference. Or give a size — “under 25 MB” — and squish makes it fit.</p><div class="fmt">mp4 mov mkv avi webm m4v wmv mts…<br>→ MP4 · H.264 or H.265</div></div>
+      <div class="card"><div class="ic im"><svg><use href="#i-image"/></svg></div><h3>Images</h3><p>Shrink and resize photos and screenshots. Keeps rotation and dates; transparent PNGs stay transparent.</p><div class="fmt">jpg png heic webp tiff bmp gif<br>→ same format, JPEG or WebP</div></div>
+      <div class="card"><div class="ic p"><svg><use href="#i-doc"/></svg></div><h3>PDFs</h3><p>Scans and slide decks that are too big to email become small enough to send — text stays sharp.</p><div class="fmt">pdf<br>→ 300, 150 or 72 dpi images</div></div>
+      <div class="card"><div class="ic a"><svg><use href="#i-audio"/></svg></div><h3>Audio</h3><p>Turn huge WAV and FLAC recordings into small files for sharing, podcasts or voice memos.</p><div class="fmt">wav flac aiff m4a mp3 ogg…<br>→ MP3, AAC or Opus</div></div>
+    </div>
+  </div>
+</section>
+
+<section id="usage">
+  <div class="wrap">
+    <h2>How it works</h2>
+    <p class="sub">Your originals are never modified. Everything lands in a new <code>compressed</code> folder right next to them.</p>
+    <div class="steps">
+      <div class="step"><h3>Type <code>squish</code></h3><p>Then drag a folder into the Terminal window — or press Enter to pick it in Finder.</p></div>
+      <div class="step"><h3>Pick with the arrow keys</h3><p>Format, how much to shrink, maximum size… Each question has a sensible default — Enter accepts it.</p></div>
+      <div class="step"><h3>Get your files back</h3><p>A progress bar per file, then a summary of what you saved. The output folder opens on its own.</p></div>
+    </div>
+
+    <h2 style="margin-top:64px">Recipes</h2>
+    <p class="sub">Common jobs, one line each. Add <code>-y</code> to skip the questions and use recommended settings.</p>
+    <div class="recipes">
+      <div class="recipe"><h3>Fit videos under 25 MB</h3><p>For Discord, email attachments or messaging apps.</p>
+<pre class="code"><span class="p">$ </span>squish -t video -s 25 ~/Movies/Clips</pre></div>
+      <div class="recipe"><h3>Photos for the web</h3><p>Pick WebP and 1920 px when asked: often 90%+ smaller.</p>
+<pre class="code"><span class="p">$ </span>squish -t image ~/Pictures/Shoot</pre></div>
+      <div class="recipe"><h3>A whole drive, no questions</h3><p>Everything, subfolders included, structure preserved.</p>
+<pre class="code"><span class="p">$ </span>squish -y -r /Volumes/Archive</pre></div>
+      <div class="recipe"><h3>One scanned PDF to email</h3><p>Results go wherever you like with <code>-o</code>.</p>
+<pre class="code"><span class="p">$ </span>squish -o ~/Desktop contract.pdf</pre></div>
+    </div>
+  </div>
+</section>
+
+<section id="open-source" class="alt">
+  <div class="wrap oss">
+    <div>
+      <h2>Free and open source. For good.</h2>
+      <p class="sub">squish is MIT-licensed. Use it, change it, ship it in your own projects — no account, no telemetry, no catch.</p>
+      <ul>
+        <li><span class="ck"><svg><use href="#i-check"/></svg></span><div><b>One readable file</b><span>The whole tool is a single shell script. Open it and read every line before you run it.</span></div></li>
+        <li><span class="ck"><svg><use href="#i-check"/></svg></span><div><b>Nothing leaves your computer</b><span>Files are compressed locally with FFmpeg and Ghostscript. squish never uploads anything.</span></div></li>
+        <li><span class="ck"><svg><use href="#i-check"/></svg></span><div><b>Built in the open</b><span>Report bugs, suggest features or send a pull request — contributions are welcome.</span></div></li>
+      </ul>
+      <div class="btns">
+        <a class="btn primary" href="https://github.com/romainmaxxing/squish-mac-compressor"><svg><use href="#i-star"/></svg>Star on GitHub</a>
+        <a class="btn" href="https://github.com/romainmaxxing/squish-mac-compressor/blob/main/squish"><svg><use href="#i-code"/></svg>Read the source</a>
+        <a class="btn" href="https://github.com/romainmaxxing/squish-mac-compressor/issues"><svg><use href="#i-branch"/></svg>Contribute</a>
+      </div>
+    </div>
+    <div class="licence" aria-label="MIT license excerpt">
+<span class="c"># LICENSE</span>
+<span class="t">MIT License</span>
+
+Permission is hereby granted, <span class="s">free of charge</span>,
+to any person obtaining a copy of this
+software […] to deal in the Software
+<span class="s">without restriction</span>, including without
+limitation the rights to <span class="s">use, copy,
+modify, merge, publish, distribute</span>
+[…]
+    </div>
+  </div>
+</section>
+
+<section id="options">
+  <div class="wrap">
+    <h2>Options</h2>
+    <p class="sub">Everything is optional — squish asks for what it needs. These are for when you already know what you want.</p>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Option</th><th>What it does</th></tr></thead>
+      <tbody>
+        <tr><td>squish [folder|files…]</td><td>Compress a folder (or files). Without anything, squish asks.</td></tr>
+        <tr><td>-y, --yes</td><td>Don't ask; use the recommended settings.</td></tr>
+        <tr><td>-r, --recursive</td><td>Include subfolders, keeping the same structure in the output.</td></tr>
+        <tr><td>-o, --output DIR</td><td>Put results in <code>DIR</code> instead of a <code>compressed</code> folder next to the originals.</td></tr>
+        <tr><td>-t, --type LIST</td><td>Only some kinds of files: <code>video</code>, <code>image</code>, <code>pdf</code>, <code>audio</code> (comma-separated).</td></tr>
+        <tr><td>-s, --size MB</td><td>Videos: make each one fit under this size, using two-pass encoding.</td></tr>
+        <tr><td>--update</td><td>Download and install the latest version.</td></tr>
+        <tr><td>--uninstall</td><td>Remove squish and any tools it downloaded.</td></tr>
+        <tr><td>-h, -V</td><td>Help, version.</td></tr>
+      </tbody>
+    </table></div>
+
+    <h2 style="margin-top:64px">The choices, explained</h2>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Kind</th><th>Questions</th><th>Recommended</th></tr></thead>
+      <tbody>
+        <tr><td>Videos</td><td>Balanced / Strong / Gentle / Target size · H.264 or H.265 · resolution 1080p, 720p, 480p · keep or remove sound · normal or fast</td><td>Balanced, H.264, original size</td></tr>
+        <tr><td>Images</td><td>Keep format / JPEG / WebP · Balanced / Strong / Gentle · longest side 4K, 2560, 1920 or 1280 px</td><td>Same format, Balanced, original size</td></tr>
+        <tr><td>PDFs</td><td>Balanced (150 dpi) / Strong (72 dpi) / Gentle (300 dpi)</td><td>Balanced</td></tr>
+        <tr><td>Audio</td><td>MP3 / AAC / Opus · Balanced / Strong / Gentle</td><td>MP3, Balanced</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+</section>
+
+<section id="faq" class="alt">
+  <div class="wrap">
+    <h2>Questions</h2>
+    <p class="sub">&nbsp;</p>
+    <details open><summary>Will it ever touch my original files?</summary><p>No. squish only reads them. Results always go to a new <code>compressed</code> folder (or the folder you give with <code>-o</code>).</p></details>
+    <details><summary>What if a file can't get any smaller?</summary><p>squish never hands you a bigger file. If the compressed version would be heavier, the original is copied into the output folder as is, so the folder is complete.</p></details>
+    <details><summary>Can I stop halfway?</summary><p>Yes — press Ctrl-C. Run the same command again later and squish skips everything that's already done.</p></details>
+    <details><summary>What do I need installed?</summary><p>squish uses FFmpeg for videos, audio and most images, and Ghostscript for PDFs. If one is missing, squish offers to install it (via Homebrew, or a standalone FFmpeg download on macOS) the first time it's needed. For even smaller PNGs, install <code>pngquant</code> and squish uses it automatically.</p></details>
+    <details><summary>Is it really free? What's the catch?</summary><p>No catch. squish is open source under the MIT license: free for personal and commercial use, forever. It's a small shell script that drives well-known free tools.</p></details>
+    <details><summary>What's the difference between H.264 and H.265?</summary><p>H.264 plays on absolutely everything. H.265 makes files roughly 40% smaller again at the same quality and plays on Apple devices, recent phones, TVs and computers — but encoding takes longer.</p></details>
+    <details><summary>Does it work on Windows?</summary><p>Inside WSL (Windows Subsystem for Linux), yes. There's no native Windows version.</p></details>
+    <details><summary>How do I update or remove it?</summary><p><code>squish --update</code> fetches the latest version. <code>squish --uninstall</code> removes it.</p></details>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    squish is free and open source under the MIT license · built on <a href="https://ffmpeg.org">FFmpeg</a>, <a href="https://ghostscript.com">Ghostscript</a> &amp; <a href="https://pngquant.org">pngquant</a> · <a href="https://github.com/romainmaxxing/squish-mac-compressor">Source on GitHub</a>
+  </div>
+</footer>
+
+<div class="toast" id="toast">Copied — paste it in Terminal</div>
+
+<script>
+// ── copy button ───────────────────────────────────────────────────────────────
+document.querySelectorAll('[data-copy]').forEach(btn => {
+  btn.addEventListener('click', async () => {
+    const text = document.querySelector(btn.dataset.copy).textContent.trim();
+    try { await navigator.clipboard.writeText(text); }
+    catch (e) { const ta = document.createElement('textarea'); ta.value = text; document.body.appendChild(ta); ta.select(); try { document.execCommand('copy'); } catch (_) {} ta.remove(); }
+    const t = document.getElementById('toast'), l = btn.querySelector('span');
+    t.classList.add('on'); l.textContent = 'Copied';
+    setTimeout(() => { t.classList.remove('on'); l.textContent = 'Copy'; }, 1600);
+  });
+});
+
+// ── terminal demo ─────────────────────────────────────────────────────────────
+(function () {
+  const screen = document.getElementById('screen'), term = document.getElementById('term');
+  const stage = document.getElementById('stage'), folder = document.getElementById('folder'), mouse = document.getElementById('mouse');
+  const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const k = (cls, s) => `<span class="${cls}">${esc(s)}</span>`;
+  const rail = (s = '') => k('k-rail', '│') + (s ? '  ' + s : '');
+  const GRAD = ['#ff875f', '#ff875f', '#ff8787', '#ff5f87', '#ff5faf', '#ff5faf', '#d75fd7', '#d75fff', '#af5fff', '#af5fff', '#875fff', '#875fff'];
+  const LOGO_C = ['#ff875f', '#ff5f87', '#ff5faf', '#d75fd7', '#af5fff', '#875fff'];
+  const L = {
+    S: ['███████╗', '██╔════╝', '███████╗', '╚════██║', '███████║', '╚══════╝'],
+    Q: [' ██████╗ ', '██╔═══██╗', '██║   ██║', '██║▄▄ ██║', '╚██████╔╝', ' ╚══▀▀═╝ '],
+    U: ['██╗   ██╗', '██║   ██║', '██║   ██║', '██║   ██║', '╚██████╔╝', ' ╚═════╝ '],
+    I: ['██╗', '██║', '██║', '██║', '██║', '╚═╝'],
+    H: ['██╗  ██╗', '██║  ██║', '███████║', '██╔══██║', '██║  ██║', '╚═╝  ╚═╝'],
+  };
+  const logo = [0, 1, 2, 3, 4, 5].map(r => '   ' + ['S', 'Q', 'U', 'I', 'S', 'H'].map((c, i) => `<span style="color:${LOGO_C[i]}">${L[c][r]}</span>`).join(''));
+  const gbar = (f, t) => { let s = ''; for (let i = 0; i < t; i++) s += i < f ? `<span style="color:${GRAD[Math.floor(i * 12 / t)]}">█</span>` : k('k-rail', '░'); return s; };
+  const ratio = n => { let s = ''; for (let i = 0; i < 10; i++) s += i < n ? `<span style="color:${GRAD[i + 1]}">▰</span>` : k('k-rail', '▱'); return s; };
+  const BIG0 = ['█▀█', '▀█ ', '▀▀█', '▀▀█', '█ █', '█▀▀', '█▀▀', '▀▀█', '█▀█', '█▀█'], BIG1 = ['█ █', ' █ ', '█▀▀', ' ▀█', '▀▀█', '▀▀█', '█▀█', '  █', '█▀█', '▀▀█'], BIG2 = ['▀▀▀', '▀▀▀', '▀▀▀', '▀▀▀', '  ▀', '▀▀▀', '▀▀▀', '  ▀', '▀▀▀', '▀▀▀'];
+  const big = num => {
+    const rows = [`<span style="color:${GRAD[0]}">   </span>`, `<span style="color:${GRAD[0]}">▀▀ </span>`, `<span style="color:${GRAD[0]}">   </span>`];
+    let c = 0;
+    for (const d of String(num)) { c += 3; const col = GRAD[c]; rows[0] += `<span style="color:${col}">${BIG0[d]} </span>`; rows[1] += `<span style="color:${col}">${BIG1[d]} </span>`; rows[2] += `<span style="color:${col}">${BIG2[d]} </span>`; }
+    const col = GRAD[Math.min(11, c + 3)];
+    rows[0] += `<span style="color:${col}">▀ ▄▀</span>`; rows[1] += `<span style="color:${col}"> ▄▀ </span>`; rows[2] += `<span style="color:${col}">▄▀ ▄</span>`;
+    return rows;
+  };
+  const prompt = k('k-prompt', '➜') + ' ' + k('k-info k-b', '~') + ' ';
+
+  let lines = [], live = '';
+  const render = (cursor = true) => {
+    screen.innerHTML = lines.join('\n') + (lines.length ? '\n' : '') + live + (cursor ? '<span class="cursor"></span>' : '');
+    screen.scrollTop = screen.scrollHeight;
+  };
+  const sleep = ms => new Promise(r => setTimeout(r, reduce ? 0 : ms));
+  const add = async (s, ms = 55) => { lines.push(s); render(); await sleep(ms); };
+  const type = async (pre, text, speed = 70) => { for (let i = 0; i <= text.length; i++) { live = pre + esc(text.slice(0, i)); render(); await sleep(speed + Math.random() * 40); } };
+
+  async function menu(q, opts, picks) {   // picks = list of indices the selection visits
+    await add(rail());
+    await add(k('k-a', '◆') + '  ' + k('k-b', q), 30);
+    const start = lines.length;
+    const draw = sel => {
+      lines.length = start;
+      opts.forEach((o, i) => lines.push(rail(i === sel
+        ? k('k-a', '●') + ' ' + k('k-b', o[0].padEnd(13)) + (o[1] ? '  ' + k('k-dim', o[1]) : '')
+        : k('k-rail', '○ ' + o[0]))));
+      lines.push(k('k-rail', '└') + '  ' + k('k-dim', '↑↓ move · enter select'));
+      live = ''; render(false);
+    };
+    for (const p of picks) { draw(p); await sleep(520); }
+    await sleep(350);
+    lines.length = start - 1;
+    lines.push(k('k-rail', '◇') + '  ' + q);
+    lines.push(rail(k('k-dim', opts[picks[picks.length - 1]][0])));
+    render(false); await sleep(250);
+  }
+
+  // Where the folder starts and lands, in px relative to the stage.
+  // The mouse tip lands exactly on the text cursor; the folder hangs just under it.
+  function dragGeometry() {
+    const st = stage.getBoundingClientRect();
+    const fw = folder.offsetWidth, fh = folder.offsetHeight;
+    const mark = screen.querySelector('.cursor');
+    const scr = screen.getBoundingClientRect();
+    const c = mark ? mark.getBoundingClientRect() : { left: scr.left + 40, top: scr.bottom - 40, height: 16 };
+    const clampX = x => Math.max(6, Math.min(x, st.width - fw - 6));
+    const tipX = c.left - st.left, tipY = c.top - st.top + c.height / 2;
+    return {
+      start: { x: clampX(st.width - fw - 24), y: 52 },               // top-right, inside the terminal
+      end:   { x: clampX(tipX - fw * 0.35), y: tipY + 6 },
+      tip:   { x: tipX - 3, y: tipY - 3 },
+      grab:  { dx: fw * 0.35 - 3, dy: -9 },                          // mouse position relative to folder
+    };
+  }
+  const place = (el, x, y, extra = '') => { el.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px) ${extra}`; };
+
+  async function drag(path) {
+    const g = dragGeometry();
+    folder.style.transition = 'none'; mouse.style.transition = 'none';
+    place(folder, g.start.x, g.start.y); place(mouse, g.start.x + g.grab.dx, g.start.y + g.grab.dy);
+    folder.offsetHeight;   // apply the start position before animating
+    folder.style.transition = ''; mouse.style.transition = '';
+    folder.style.opacity = 1; mouse.style.opacity = 1;
+    await sleep(600);
+    const g2 = dragGeometry();   // recompute in case the layout moved
+    place(folder, g2.end.x, g2.end.y, 'rotate(-3deg) scale(.92)');
+    place(mouse, g2.tip.x, g2.tip.y);
+    await sleep(950); term.classList.add('hover'); await sleep(350);
+    folder.style.opacity = 0; mouse.style.opacity = 0; term.classList.remove('hover');
+    live += esc(path) + ' '; render(); await sleep(700);
+  }
+
+  async function file(name, idx, total, from, to, pct, ratioN, secs, video) {
+    await add(rail());
+    await add(rail(k('k-b', name) + '  ' + k('k-rail', `${idx}/${total}`)), 40);
+    const spin = '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏';
+    const steps = video ? 26 : 6;
+    for (let i = 0; i <= steps; i++) {
+      const p = Math.round(i * 100 / steps);
+      live = rail(k('k-a', spin[i % 10]) + ' ' + gbar(Math.round(p * 30 / 100), 30) + ' ' + k('k-b', String(p).padStart(3) + '%') + (video && p > 5 && p < 100 ? '  ' + k('k-dim', `0:${String(Math.max(1, Math.round(secs * (100 - p) / 100))).padStart(2, '0')} left`) : ''));
+      render(false); await sleep(video ? 70 : 45);
+    }
+    live = '';
+    await add(rail(k('k-ok', '✓') + ' ' + ratio(ratioN) + '  ' + k('k-dim', from) + ' → ' + k('k-b', to) + '  ' + k('k-ok k-b', `−${pct}%`) + (secs > 2 ? '  ' + k('k-rail', `0:${String(secs).padStart(2, '0')}`) : '')), 120);
+  }
+
+  async function play() {
+    lines = []; live = ''; render();
+    await sleep(700);
+    await type(prompt, 'squish', 110);
+    await sleep(450);
+    lines.push(live); live = ''; render();
+    await add('');
+    for (const l of logo) await add(l, 45);
+    await add('   ' + k('k-dim', 'videos · images · pdfs · audio') + '  ' + k('k-rail', '─────────') + '  ' + k('k-a2', 'v1.0.0'));
+    await add('');
+    await add(k('k-rail', '┌') + '  ' + k('k-a k-b', 'squish') + ' ' + k('k-dim', "— let's make things smaller"));
+    await add(rail());
+    await add(k('k-a', '◆') + '  ' + k('k-b', 'Which folder do you want to compress?'));
+    await add(rail(k('k-dim', 'drag it here and press enter — or press enter to use Finder')));
+    live = rail(k('k-a', '›') + ' '); render();
+    await sleep(900);
+    await drag('/Users/alex/Movies/Vacation');
+    lines.push(live); live = ''; render(false); await sleep(400);
+    await add(rail());
+    await add(k('k-ok', '●') + '  Found ' + k('k-b', '6 videos · 42 images'), 500);
+    await menu('What do you want to compress?', [['Everything'], ['Videos only'], ['Images only']], [0]);
+    await add(rail());
+    await add(k('k-rail', '├─') + ' ' + k('k-a2 k-b', 'VIDEOS') + ' ' + k('k-rail', '──────────────────────────────'));
+    await menu('How much should videos shrink?', [['Balanced', 'much smaller, no visible difference'], ['Strong', 'smallest files, slight quality loss'], ['Gentle', 'near-identical quality, smaller gain'], ['Target size', 'fit under a size (email, Discord, WhatsApp…)']], [0, 1, 2, 3, 2, 1, 0]);
+    await add(rail());
+    await add(k('k-rail', '├─') + ' ' + k('k-a2 k-b', 'IMAGES') + ' ' + k('k-rail', '──────────────────────────────'));
+    await menu('Image format?', [['Keep format', 'JPEG stays JPEG, PNG stays PNG'], ['JPEG', 'opens everywhere'], ['WebP', 'smallest, keeps transparency']], [0, 1, 2]);
+    await add(rail());
+    await add(k('k-rail', '◇') + '  ' + k('k-b', 'The plan'));
+    await add(rail(k('k-dim', 'output') + '   ' + k('k-info', 'compressed/') + ' next to the originals ' + k('k-dim', '(originals untouched)')));
+    await add(rail(k('k-dim', 'videos') + '   balanced, H.264'));
+    await add(rail(k('k-dim', 'images') + '   WebP, balanced'));
+    await menu('Ready?', [['Start', 'compress 48 files'], ['Cancel']], [0]);
+    await add(rail());
+    await add(k('k-rail', '◇') + '  ' + k('k-b', 'Compressing') + ' ' + k('k-dim', '48 files'));
+    await file('beach-sunset.mov', 1, 48, '412.6 MB', '96.3 MB', 77, 3, 41, true);
+    await file('IMG_2041.heic', 2, 48, '3.1 MB', '640 KB', 80, 2, 0, false);
+    await file('drone-coast.mp4', 3, 48, '1.2 GB', '286.0 MB', 77, 3, 58, true);
+    await file('IMG_2042.jpg', 4, 48, '4.8 MB', '1.1 MB', 77, 3, 0, false);
+    await add(rail(k('k-dim', '⋮')), 400);
+    await add(rail());
+    await add(k('k-rail', '◇') + '  ' + k('k-b', 'Done') + ' ' + k('k-dim', 'in 6:12'));
+    await add(rail());
+    const b = big(75);
+    await add(rail('  ' + b[0] + '   ' + k('k-b', 'saved 1.8 GB')), 90);
+    await add(rail('  ' + b[1] + '   ' + k('k-dim', '2.4 GB → 612.0 MB')), 90);
+    await add(rail('  ' + b[2] + '   ' + k('k-dim', '48 files compressed')), 90);
+    await add(rail());
+    await add(rail('  ' + k('k-dim', 'before') + '  ' + gbar(34, 34) + '  2.4 GB'), 90);
+    await add(rail('  ' + k('k-dim', 'after ') + '  ' + gbar(9, 34) + '  ' + k('k-b', '612.0 MB')), 90);
+    await add(rail());
+    await add(k('k-rail', '└') + '  Saved in ' + k('k-info k-b', '~/Movies/Vacation/compressed'));
+    await add('');
+    live = prompt; render();
+    await sleep(7000);
+    play();
+  }
+
+  if ('IntersectionObserver' in window) {
+    const io = new IntersectionObserver(es => { if (es[0].isIntersecting) { io.disconnect(); play(); } }, { threshold: .25 });
+    io.observe(screen);
+  } else play();
+})();
+</script>
+</body>
+</html>

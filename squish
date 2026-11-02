@@ -1,0 +1,947 @@
+#!/bin/bash
+#
+#  squish — compress videos, images, PDFs and audio from your terminal.
+#  Simple questions, sensible defaults, originals never touched.
+#
+#  https://github.com/romainmaxxing/squish-mac-compressor  ·  MIT License
+#
+
+NAME="squish"
+VERSION="1.0.0"
+REPO="romainmaxxing/squish-mac-compressor"
+OUT_DIR_NAME="compressed"
+SUPPORT="$HOME/.squish"
+
+VIDEO_EXT="mp4 mov m4v mkv avi webm wmv flv mts m2ts 3gp mpg mpeg ts mxf dv"
+IMAGE_EXT="jpg jpeg png heic heif webp tif tiff bmp gif"
+PDF_EXT="pdf"
+AUDIO_EXT="wav aif aiff flac m4a mp3 aac ogg oga opus wma caf"
+
+# Keyboard input works even when the script is piped (curl … | bash).
+if ! { exec 3</dev/tty; } 2>/dev/null; then exec 3<&0; fi
+
+# ─────────────────────────────────────────────────────────────── look & feel
+if [ -t 1 ]; then LIVE=1; CLR=$'\r\033[K'; else LIVE=""; CLR=""; fi
+# Arrow-key menus need a real keyboard and screen
+if [ -n "$LIVE" ] && [ -t 3 ]; then TTY_UI=1; else TTY_UI=""; fi
+
+if [ -n "$LIVE" ] && [ -z "$NO_COLOR" ]; then
+  B=$'\033[1m'; N=$'\033[0m'
+  ncolors="$(tput colors 2>/dev/null)"
+  if [ "${ncolors:-0}" -ge 256 ] 2>/dev/null || [ -n "$COLORTERM" ] || case "$TERM" in *256*) true ;; *) false ;; esac; then
+    c256() { printf '\033[38;5;%sm' "$1"; }
+    A="$(c256 205)"; A2="$(c256 141)"; OK="$(c256 114)"; WARN="$(c256 221)"; ERRC="$(c256 203)"
+    D="$(c256 245)"; RAIL="$(c256 240)"; INFO="$(c256 117)"
+    GRAD=("$(c256 209)" "$(c256 209)" "$(c256 210)" "$(c256 204)" "$(c256 205)" "$(c256 205)" "$(c256 170)" "$(c256 171)" "$(c256 135)" "$(c256 135)" "$(c256 99)" "$(c256 99)")
+    LOGO_C=("$(c256 209)" "$(c256 204)" "$(c256 205)" "$(c256 170)" "$(c256 135)" "$(c256 99)")
+  else
+    A=$'\033[35m'; A2=$'\033[35m'; OK=$'\033[32m'; WARN=$'\033[33m'; ERRC=$'\033[31m'
+    D=$'\033[2m'; RAIL=$'\033[2m'; INFO=$'\033[36m'
+    GRAD=($'\033[31m' $'\033[31m' $'\033[31m' $'\033[35m' $'\033[35m' $'\033[35m' $'\033[35m' $'\033[35m' $'\033[34m' $'\033[34m' $'\033[34m' $'\033[34m')
+    LOGO_C=($'\033[31m' $'\033[31m' $'\033[35m' $'\033[35m' $'\033[34m' $'\033[34m')
+  fi
+else
+  B=; N=; A=; A2=; OK=; WARN=; ERRC=; D=; RAIL=; INFO=
+  GRAD=("" "" "" "" "" "" "" "" "" "" "" ""); LOGO_C=("" "" "" "" "" "")
+fi
+R="$ERRC"; G="$OK"; Y="$WARN"; C="$INFO"; M="$A"   # short aliases
+
+say()   { printf '%s\n' "$*"; }
+lower() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
+upper() { printf '%s' "$1" | tr '[:lower:]' '[:upper:]'; }
+is_mac() { [ "$(uname)" = Darwin ]; }
+has() { command -v "$1" >/dev/null 2>&1; }
+filesize() { wc -c < "$1" | tr -d ' '; }
+plural() { [ "$1" -eq 1 ] && printf '%s %s' "$1" "$2" || printf '%s %ss' "$1" "$2"; }
+pct_saved() { local p=$((100 - $2 * 100 / $1)); [ $p -ge 100 ] && p=99; echo $p; }
+term_cols() { local c; c="$(tput cols 2>/dev/null)"; [ "${c:-0}" -gt 0 ] 2>/dev/null && echo "$c" || echo 80; }
+mmss() { printf '%d:%02d' $(($1 / 60)) $(($1 % 60)); }
+
+human() {
+  awk -v b="$1" 'BEGIN {
+    if (b >= 1073741824) printf "%.2f GB", b/1073741824;
+    else if (b >= 1048576) printf "%.1f MB", b/1048576;
+    else printf "%.0f KB", b/1024 }'
+}
+
+# The rail: a vertical guide down the left side, like a little timeline.
+r_bar()  { say "${RAIL}│${N}"; }
+r_line() { say "${RAIL}│${N}  $*"; }
+r_ask()  { say "${A}◆${N}  ${B}$*${N}"; }
+r_done() { say "${RAIL}◇${N}  $*"; }
+r_ok()   { say "${OK}●${N}  $*"; }
+r_warn() { say "${WARN}▲${N}  $*"; }
+r_end()  { say "${RAIL}└${N}  $*"; }
+err()    { printf '%s\n' "${ERRC}■${N}  ${ERRC}$*${N}" >&2; }
+section() {
+  [ -n "$ASSUME_YES" ] && return
+  r_bar; say "${RAIL}├─${N} ${A2}${B}$(upper "$1")${N} ${RAIL}──────────────────────────────${N}"
+}
+
+cursor_hide() { [ -n "$LIVE" ] && printf '\033[?25l'; }
+cursor_show() { [ -n "$LIVE" ] && printf '\033[?25h'; }
+trap cursor_show EXIT
+
+# ── the logo ─────────────────────────────────────────────────────────────────
+LOGO_S=("███████╗" "██╔════╝" "███████╗" "╚════██║" "███████║" "╚══════╝")
+LOGO_Q=(" ██████╗ " "██╔═══██╗" "██║   ██║" "██║▄▄ ██║" "╚██████╔╝" " ╚══▀▀═╝ ")
+LOGO_U=("██╗   ██╗" "██║   ██║" "██║   ██║" "██║   ██║" "╚██████╔╝" " ╚═════╝ ")
+LOGO_I=("██╗" "██║" "██║" "██║" "██║" "╚═╝")
+LOGO_H=("██╗  ██╗" "██║  ██║" "███████║" "██╔══██║" "██║  ██║" "╚═╝  ╚═╝")
+
+banner() {
+  if [ -z "$LIVE" ]; then say "$NAME $VERSION — compress videos, images, PDFs & audio"; say ""; return; fi
+  say ""
+  if [ "$(term_cols)" -lt 56 ]; then
+    say "  ${A}${B}▶◀ squish${N} ${D}$VERSION${N}"
+  else
+    local r
+    for r in 0 1 2 3 4 5; do
+      printf '   %s%s%s%s%s%s%s%s%s%s%s%s%s\n' \
+        "${LOGO_C[0]}" "${LOGO_S[$r]}" "${LOGO_C[1]}" "${LOGO_Q[$r]}" "${LOGO_C[2]}" "${LOGO_U[$r]}" \
+        "${LOGO_C[3]}" "${LOGO_I[$r]}" "${LOGO_C[4]}" "${LOGO_S[$r]}" "${LOGO_C[5]}" "${LOGO_H[$r]}" "$N"
+    done
+    say "   ${D}videos · images · pdfs · audio${N}  ${RAIL}─────────${N}  ${A2}v$VERSION${N}"
+  fi
+  say ""
+}
+
+# ── big digits for the final score ───────────────────────────────────────────
+BIG0=("█▀█" "▀█ " "▀▀█" "▀▀█" "█ █" "█▀▀" "█▀▀" "▀▀█" "█▀█" "█▀█")
+BIG1=("█ █" " █ " "█▀▀" " ▀█" "▀▀█" "▀▀█" "█▀█" "  █" "█▀█" "▀▀█")
+BIG2=("▀▀▀" "▀▀▀" "▀▀▀" "▀▀▀" "  ▀" "▀▀▀" "▀▀▀" "  ▀" "▀▀▀" "▀▀▀")
+big_number() { # big_number "74" → prints 3 rows into BIGROWS[0..2] (with a minus and a %)
+  local s="$1" i ch k=0
+  BIGROWS=("${GRAD[0]}   " "${GRAD[0]}▀▀ " "${GRAD[0]}   ")
+  for ((i = 0; i < ${#s}; i++)); do
+    ch="${s:$i:1}"; k=$((k + 3))
+    BIGROWS[0]="${BIGROWS[0]}${GRAD[$k]}${BIG0[$ch]} "
+    BIGROWS[1]="${BIGROWS[1]}${GRAD[$k]}${BIG1[$ch]} "
+    BIGROWS[2]="${BIGROWS[2]}${GRAD[$k]}${BIG2[$ch]} "
+  done
+  k=$((k + 3)); [ $k -gt 11 ] && k=11
+  BIGROWS[0]="${BIGROWS[0]}${GRAD[$k]}▀ ▄▀$N"
+  BIGROWS[1]="${BIGROWS[1]}${GRAD[$k]} ▄▀ $N"
+  BIGROWS[2]="${BIGROWS[2]}${GRAD[$k]}▄▀ ▄$N"
+  [ ${#s} -eq 1 ] && { BIGROWS[0]="${BIGROWS[0]}    "; BIGROWS[1]="${BIGROWS[1]}    "; BIGROWS[2]="${BIGROWS[2]}    "; }
+}
+
+# ── bars ─────────────────────────────────────────────────────────────────────
+grad_bar() { # grad_bar filled total → gradient blocks, then a dim track
+  local f=$1 t=$2 k=0 s="" ci
+  while [ $k -lt $t ]; do
+    if [ $k -lt $f ]; then ci=$((k * 12 / t)); s="$s${GRAD[$ci]}█"; else s="$s${RAIL}░"; fi
+    k=$((k + 1))
+  done
+  printf '%s%s' "$s" "$N"
+}
+
+SPIN=(⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏); SPIN_I=0
+bar() { # bar percent — live progress line with time left
+  [ -n "$LIVE" ] || return 0
+  local pct=$1 now el left=""
+  [ "$pct" -gt 100 ] && pct=100; [ "$pct" -lt 0 ] && pct=0
+  SPIN_I=$(((SPIN_I + 1) % 10))
+  now=$(date +%s); el=$((now - ${BAR_T0:-now}))
+  [ "$pct" -ge 3 ] && [ $el -ge 2 ] && left="  ${D}$(mmss $((el * (100 - pct) / pct))) left${N}"
+  printf '%s%s│%s  %s%s%s %s %s%3d%%%s%s%s' "$CLR" "$RAIL" "$N" "$A" "${SPIN[$SPIN_I]}" "$N" \
+    "$(grad_bar $((pct * 30 / 100)) 30)" "$B" "$pct" "$N" "$left" "${BAR_LABEL:+  ${D}$BAR_LABEL${N}}"
+}
+
+working() { [ -n "$LIVE" ] && printf '%s%s│%s  %s%s%s %s' "$CLR" "$RAIL" "$N" "$A" "${SPIN[0]}" "$N" "${D}working…${N}"; }
+
+ratio_bar() { # ratio_bar before after → ▰▰▰▱▱▱▱▱▱▱ (share of the original size that's left)
+  local f=$(( ($2 * 10 + $1 - 1) / $1 )) k=0 s=""
+  [ $f -lt 1 ] && f=1; [ $f -gt 10 ] && f=10
+  while [ $k -lt 10 ]; do
+    if [ $k -lt $f ]; then s="$s${GRAD[$((k + 1))]}▰"; else s="$s${RAIL}▱"; fi
+    k=$((k + 1))
+  done
+  printf '%s%s' "$s" "$N"
+}
+
+# ── questions ────────────────────────────────────────────────────────────────
+# menu "Question" default "Label — hint" "Label — hint" …  → sets $PICK
+menu() {
+  local q="$1" def="$2"; shift 2
+  if [ -n "$ASSUME_YES" ]; then PICK="$def"; return; fi
+  local n=$# i w=0 lab opt
+  local labels=() hints=()
+  for opt in "$@"; do
+    case "$opt" in *" — "*) lab="${opt%% — *}"; hints+=("${opt#* — }") ;; *) lab="$opt"; hints+=("") ;; esac
+    lab="${lab%"${lab##*[! ]}"}"; labels+=("$lab"); [ ${#lab} -gt $w ] && w=${#lab}
+  done
+  r_bar
+  r_ask "$q"
+
+  if [ -z "$TTY_UI" ]; then   # plain fallback: type a number
+    i=0
+    while [ $i -lt $n ]; do
+      r_line "${A}$((i + 1)))${N} $(printf "%-${w}s" "${labels[$i]}")  ${D}${hints[$i]}${N}$( [ $((i + 1)) = "$def" ] && printf ' %s' "${A2}(default)${N}")"
+      i=$((i + 1))
+    done
+    local ans
+    while true; do
+      printf '%s' "${RAIL}│${N}  ${A}›${N} "
+      read -r ans <&3 || exit 1
+      [ -z "$ans" ] && ans="$def"
+      if [ "$ans" -ge 1 ] 2>/dev/null && [ "$ans" -le $n ]; then PICK="$ans"; break; fi
+      r_line "${WARN}Type a number between 1 and $n.${N}"
+    done
+    return
+  fi
+
+  local sel=$((def - 1)) key rest showhints=1
+  [ "$(term_cols)" -lt $((w + 66)) ] && showhints=""
+  cursor_hide
+  _menu_draw() {
+    local j=0
+    while [ $j -lt $n ]; do
+      if [ $j -eq $sel ]; then
+        printf '%s%s│%s  %s●%s %s%s%s%s\n' "$CLR" "$RAIL" "$N" "$A" "$N" "$B" "$(printf "%-${w}s" "${labels[$j]}")" "$N" \
+          "${showhints:+${hints[$j]:+  ${D}${hints[$j]}${N}}}"
+      else
+        printf '%s%s│%s  %s○ %s%s\n' "$CLR" "$RAIL" "$N" "$RAIL" "${labels[$j]}" "$N"
+      fi
+      j=$((j + 1))
+    done
+    printf '%s%s└%s  %s\n' "$CLR" "$RAIL" "$N" "${D}↑↓ move · enter select${N}"
+  }
+  _menu_draw
+  while IFS= read -rsn1 key <&3; do
+    case "$key" in
+      $'\033') IFS= read -rsn2 rest <&3
+               case "$rest" in '[A'|'OA') sel=$((sel - 1)) ;; '[B'|'OB') sel=$((sel + 1)) ;; esac ;;
+      k|K|w) sel=$((sel - 1)) ;;
+      j|J|s|$'\t') sel=$((sel + 1)) ;;
+      [1-9]) [ "$key" -le $n ] && sel=$((key - 1)) ;;
+      '') break ;;
+    esac
+    [ $sel -lt 0 ] && sel=$((n - 1)); [ $sel -ge $n ] && sel=0
+    printf '\033[%dA' $((n + 1)); _menu_draw
+  done
+  # collapse the menu into a one-line answer
+  printf '\033[%dA\r\033[J' $((n + 2))
+  r_done "$q"
+  r_line "${D}${labels[$sel]}${N}"
+  cursor_show
+  PICK=$((sel + 1))
+}
+
+confirm() { # confirm "Question" y|n
+  if [ -n "$ASSUME_YES" ]; then [ "$2" = y ]; return; fi
+  if [ "$2" = y ]; then menu "$1" 1 "Yes" "No"; else menu "$1" 2 "Yes" "No"; fi
+  [ "$PICK" = 1 ]
+}
+
+ask_text() { # ask_text "prompt" → $TEXT
+  printf '%s' "${RAIL}│${N}  ${A}›${N} "
+  cursor_show
+  IFS= read -r TEXT <&3 || exit 1
+}
+
+ask_number() { # ask_number "Question" default → sets $NUM
+  local ans
+  if [ -n "$ASSUME_YES" ]; then NUM="$2"; return; fi
+  r_bar; r_ask "$1"; r_line "${D}press enter for $2${N}"
+  while true; do
+    ask_text; ans="${TEXT:-$2}"
+    ans="${ans%[mM][bB]}"; ans="${ans%[mM]}"; ans="${ans// /}"
+    if printf '%s' "$ans" | grep -Eq '^[0-9]+([.,][0-9]+)?$'; then NUM="${ans/,/.}"; return; fi
+    r_line "${WARN}Type a number, e.g. 25${N}"
+  done
+}
+
+# ─────────────────────────────────────────────────────────────── help / maintenance
+usage() {
+  cat <<EOF
+${B}$NAME $VERSION${N} — compress videos, images, PDFs and audio.
+
+${B}Usage${N}
+  $NAME                       ask which folder to compress
+  $NAME <folder|files…>       compress these
+  $NAME -y ~/Movies/Trip      no questions, use the recommended settings
+
+${B}Options${N}
+  -y, --yes            use the recommended settings, don't ask
+  -r, --recursive      include subfolders (keeps the folder structure)
+  -o, --output DIR     where to put results (default: a "$OUT_DIR_NAME" folder
+                       next to the originals)
+  -t, --type LIST      only these kinds: video,image,pdf,audio
+  -s, --size MB        videos: aim for this file size (e.g. 25 for Discord)
+      --update         update $NAME to the latest version
+      --uninstall      remove $NAME
+  -h, --help           show this help
+  -V, --version        show the version
+
+Originals are never modified. Results go to a "$OUT_DIR_NAME" folder.
+More: https://github.com/$REPO
+EOF
+}
+
+self_path() {
+  local p="$0"
+  case "$p" in */*) ;; *) p="$(command -v "$p")" ;; esac
+  printf '%s' "$p"
+}
+
+do_update() {
+  local me tmp
+  me="$(self_path)"
+  tmp="$(mktemp)"
+  say "Downloading the latest $NAME…"
+  if curl -fsSL "https://raw.githubusercontent.com/$REPO/main/$NAME" -o "$tmp" && head -1 "$tmp" | grep -q bash; then
+    chmod 755 "$tmp" && mv "$tmp" "$me" && say "${G}●${N}  Updated: $("$me" --version)"
+  else
+    rm -f "$tmp"; err "Update failed. Check your connection or https://github.com/$REPO"; exit 1
+  fi
+  exit 0
+}
+
+do_uninstall() {
+  local me; me="$(self_path)"
+  confirm "Remove $NAME ($me) and its downloaded tools?" n || exit 0
+  rm -f "$me"; rm -rf "$SUPPORT"
+  say "${G}●${N}  $NAME removed. ${D}(The PATH line in your shell profile is harmless; delete it if you like.)${N}"
+  exit 0
+}
+
+# ─────────────────────────────────────────────────────────────── dependencies
+find_ffmpeg() {
+  local c
+  for c in "$(command -v ffmpeg 2>/dev/null)" /opt/homebrew/bin/ffmpeg /usr/local/bin/ffmpeg "$SUPPORT/ffmpeg"; do
+    if [ -n "$c" ] && [ -x "$c" ] && "$c" -hide_banner -version >/dev/null 2>&1; then FFMPEG="$c"; return 0; fi
+  done
+  return 1
+}
+
+need_ffmpeg() {
+  find_ffmpeg && return 0
+  r_bar
+  r_warn "$NAME needs ${B}FFmpeg${N} for videos, images and audio — it isn't installed yet."
+  if has brew && confirm "Install it with Homebrew (brew install ffmpeg)?" y; then
+    brew install ffmpeg && find_ffmpeg && return 0
+  fi
+  if is_mac && confirm "Download a standalone FFmpeg just for $NAME (~20 MB)?" y; then
+    local url tmp
+    case "$(uname -m)" in
+      arm64) url="https://registry.npmjs.org/@ffmpeg-installer/darwin-arm64/-/darwin-arm64-4.1.5.tgz" ;;
+      *)     url="https://registry.npmjs.org/@ffmpeg-installer/darwin-x64/-/darwin-x64-4.1.0.tgz" ;;
+    esac
+    tmp="$(mktemp -d)"
+    if curl -fL# "$url" -o "$tmp/ff.tgz" && tar -xzf "$tmp/ff.tgz" -C "$tmp" package/ffmpeg; then
+      mkdir -p "$SUPPORT" && mv "$tmp/package/ffmpeg" "$SUPPORT/ffmpeg" && chmod 755 "$SUPPORT/ffmpeg"
+      xattr -c "$SUPPORT/ffmpeg" 2>/dev/null
+    fi
+    rm -rf "$tmp"
+    find_ffmpeg && { r_ok "FFmpeg ready"; return 0; }
+  fi
+  r_line "${D}Install it from https://ffmpeg.org (brew install ffmpeg / sudo apt install ffmpeg).${N}"
+  return 1
+}
+
+need_gs() {
+  has gs && { GS="$(command -v gs)"; return 0; }
+  r_bar
+  r_warn "PDFs are compressed with ${B}Ghostscript${N}, which isn't installed yet."
+  if has brew && confirm "Install it with Homebrew (brew install ghostscript)?" y; then
+    brew install ghostscript && has gs && { GS="$(command -v gs)"; return 0; }
+  fi
+  r_line "${D}Install Ghostscript (brew install ghostscript / sudo apt install ghostscript) to compress PDFs.${N}"
+  return 1
+}
+
+encoder_ok() { "$FFMPEG" -hide_banner -encoders 2>/dev/null | grep -q " $1 "; }
+
+# ─────────────────────────────────────────────────────────────── files
+clean_path() { # handles paths dragged in from Finder: '…', "…", backslash-escapes, ~
+  local p="$1"
+  p="${p#"${p%%[![:space:]]*}"}"; p="${p%"${p##*[![:space:]]}"}"
+  case "$p" in
+    \'*\') p="${p#\'}"; p="${p%\'}" ;;
+    \"*\") p="${p#\"}"; p="${p%\"}" ;;
+    *) p="$(printf '%s' "$p" | sed 's/\\\(.\)/\1/g')" ;;
+  esac
+  case "$p" in "~") p="$HOME" ;; "~/"*) p="$HOME/${p#\~/}" ;; esac
+  printf '%s' "$p"
+}
+
+kind_of() { # → video | image | pdf | audio | (empty)
+  local ext; ext=" $(lower "${1##*.}") "
+  case " $VIDEO_EXT " in *"$ext"*) echo video; return ;; esac
+  case " $IMAGE_EXT " in *"$ext"*) echo image; return ;; esac
+  case " $PDF_EXT "   in *"$ext"*) echo pdf;   return ;; esac
+  case " $AUDIO_EXT " in *"$ext"*) echo audio; return ;; esac
+}
+
+FILES=(); ROOTS=(); KINDS=()
+add_file() { # add_file path root
+  local k; k="$(kind_of "$1")"
+  [ -z "$k" ] && return
+  FILES+=("$1"); ROOTS+=("$2"); KINDS+=("$k")
+}
+
+add_folder() {
+  local dir="$1" depth f
+  [ -n "$RECURSIVE" ] && depth="" || depth="-maxdepth 1"
+  while IFS= read -r -d '' f; do add_file "$f" "$dir"; done < <(
+    find "$dir" $depth \( -type d -name "$OUT_DIR_NAME" -prune \) -o \( -type f ! -name '.*' -print0 \) 2>/dev/null | sort -z)
+}
+
+ask_folder() {
+  local p
+  r_bar
+  r_ask "Which folder do you want to compress?"
+  if is_mac; then r_line "${D}drag it here and press enter — or press enter to use Finder${N}"
+  else r_line "${D}drag it into this window, or type its path, then press enter${N}"; fi
+  while true; do
+    ask_text; p="$TEXT"
+    if [ -z "$p" ] && is_mac; then
+      p="$(osascript -e 'POSIX path of (choose folder with prompt "Folder to compress:")' 2>/dev/null)" || { r_line "${WARN}No folder chosen — try again.${N}"; continue; }
+      r_line "${D}$p${N}"
+    fi
+    p="$(clean_path "$p")"
+    if [ -d "$p" ]; then add_folder "$(cd "$p" && pwd)"; return
+    elif [ -f "$p" ]; then add_file "$(cd "$(dirname "$p")" && pwd)/$(basename "$p")" "$(cd "$(dirname "$p")" && pwd)"; return
+    fi
+    r_line "${WARN}That folder doesn't exist — try again.${N}"
+  done
+}
+
+count_kind() { local k n=0; for k in "${KINDS[@]}"; do [ "$k" = "$1" ] && n=$((n + 1)); done; echo $n; }
+
+# Output path: <root>/compressed/<relative path>/<name>.<ext>  (or -o DIR/<relative path>/…)
+USED=$'\n'
+dest_for() { # dest_for file root newext → prints path, reserves it
+  local f="$1" root="$2" ext="$3" rel base stem dir out n=2
+  rel="${f#"$root"/}"; base="$(basename "$rel")"; stem="${base%.*}"
+  case "$rel" in */*) rel="${rel%/*}" ;; *) rel="" ;; esac
+  if [ -n "$OUTPUT" ]; then dir="$OUTPUT"; else dir="$root/$OUT_DIR_NAME"; fi
+  [ -n "$rel" ] && dir="$dir/$rel"
+  out="$dir/$stem.$ext"
+  while case "$USED" in *$'\n'"$out"$'\n'*) true ;; *) false ;; esac; do out="$dir/$stem-$n.$ext"; n=$((n + 1)); done
+  USED="$USED$out"$'\n'
+  printf '%s' "$out"
+}
+
+# ─────────────────────────────────────────────────────────────── ffmpeg runner
+duration_of() { # whole seconds (0 if unknown)
+  "$FFMPEG" -hide_banner -i "$1" 2>&1 | sed -n 's/.*Duration: \([0-9]*\):\([0-9]*\):\([0-9.]*\).*/\1 \2 \3/p' | head -1 \
+    | awk '{ printf "%d", $1*3600 + $2*60 + $3 }'
+}
+
+run_ff() { # run_ff duration_seconds ffmpeg-args…   (shows a progress bar)
+  local dur="$1" status; shift
+  set -f
+  "$FFMPEG" -nostdin -hide_banner -loglevel error -y "$@" -progress pipe:1 -nostats 2>>"$ERRLOG" | {
+    while IFS='=' read -r k v; do
+      case "$k" in out_time_us|out_time_ms)
+        if [ "$dur" -gt 0 ] 2>/dev/null && [ "$v" -ge 0 ] 2>/dev/null; then bar $((v / 10000 / dur)); fi ;;
+      esac
+    done
+  }
+  status=${PIPESTATUS[0]}
+  set +f
+  return $status
+}
+
+ff_quiet() { "$FFMPEG" -nostdin -hide_banner -loglevel error -y "$@" 2>>"$ERRLOG" </dev/null; }
+
+# ─────────────────────────────────────────────────────────────── video
+video_settings() {
+  local x265=0
+  encoder_ok libx265 && x265=1
+  section "Videos"
+  if [ -n "$TARGET_MB" ]; then V_MODE=target
+  else
+    menu "How much should videos shrink?" 1 \
+      "Balanced     — much smaller, no visible difference" \
+      "Strong       — smallest files, slight quality loss" \
+      "Gentle       — near-identical quality, smaller gain" \
+      "Target size  — fit under a size (email, Discord, WhatsApp…)"
+    case $PICK in 1) V_MODE=balanced ;; 2) V_MODE=strong ;; 3) V_MODE=gentle ;; 4) V_MODE=target ;; esac
+    if [ "$V_MODE" = target ]; then ask_number "  Maximum size per video, in MB?" 25; TARGET_MB="$NUM"; fi
+  fi
+  V_CODEC=h264
+  if [ "$V_MODE" != target ] && [ $x265 = 1 ]; then
+    menu "Video format?" 1 \
+      "H.264  — MP4 that plays everywhere" \
+      "H.265  — ~40% smaller again; Apple & recent devices"
+    [ "$PICK" = 2 ] && V_CODEC=h265
+  fi
+  menu "Resolution?" 1 "Keep original" "1080p — max" "720p — max" "480p — max"
+  case $PICK in 1) V_MAX=0 ;; 2) V_MAX=1080 ;; 3) V_MAX=720 ;; 4) V_MAX=480 ;; esac
+  menu "Sound?" 1 "Keep" "Remove — silent videos are a bit smaller"
+  [ "$PICK" = 2 ] && V_AUDIO=0 || V_AUDIO=1
+  menu "Speed?" 1 "Normal — best size for the quality" "Fast — 2-3x quicker, slightly bigger files"
+  [ "$PICK" = 2 ] && V_PRESET=veryfast || V_PRESET=medium
+}
+
+video_summary() {
+  local s
+  case $V_MODE in target) s="≤ ${TARGET_MB} MB each" ;; *) s="$V_MODE" ;; esac
+  s="$s, $( [ $V_CODEC = h265 ] && echo 'H.265' || echo 'H.264' )"
+  [ "$V_MAX" -gt 0 ] && s="$s, ${V_MAX}p max"
+  [ "$V_AUDIO" = 0 ] && s="$s, no sound"
+  [ "$V_PRESET" = veryfast ] && s="$s, fast"
+  printf '%s' "$s"
+}
+
+compress_video() { # in out
+  local in="$1" out="$2" dur vf crf br abr passlog
+  dur="$(duration_of "$in")"; dur="${dur:-0}"
+  if [ "$V_MAX" -gt 0 ]; then
+    vf="scale='if(gte(iw,ih),-2,trunc(min(iw,$V_MAX)/2)*2)':'if(gte(iw,ih),trunc(min(ih,$V_MAX)/2)*2,-2)'"
+  else
+    vf="scale=trunc(iw/2)*2:trunc(ih/2)*2"
+  fi
+  local A=(); [ "$V_AUDIO" = 1 ] && A=(-map "0:a:0?" -c:a aac -b:a 128k) || A=(-an)
+
+  local mode="$V_MODE"
+  # Target size: a file already under the target just gets the balanced treatment.
+  if [ "$mode" = target ] && awk -v s="$(filesize "$in")" -v t="$TARGET_MB" 'BEGIN { exit !(s <= t*1048576) }'; then mode=balanced; fi
+
+  if [ "$mode" = target ]; then
+    [ "$dur" -gt 0 ] || { echo "unknown duration" >>"$ERRLOG"; return 1; }
+    [ "$V_AUDIO" = 1 ] && abr=128 || abr=0
+    br=$(awk -v mb="$TARGET_MB" -v d="$dur" -v a="$abr" 'BEGIN { printf "%d", mb*8192*0.96/d - a }')
+    if [ "$br" -lt 150 ]; then
+      [ "$V_AUDIO" = 1 ] && { A=(-map "0:a:0?" -c:a aac -b:a 64k); br=$((br + 64)); }
+      [ "$br" -lt 80 ] && br=80
+      TARGET_NOTE="too long for ${TARGET_MB} MB at good quality — did its best"
+    fi
+    passlog="$WORK/pass"
+    BAR_LABEL="pass 1/2"
+    run_ff "$dur" -i "$in" -map 0:v:0 -c:v libx264 -b:v "${br}k" -preset "$V_PRESET" -pix_fmt yuv420p \
+      -vf "$vf" -pass 1 -passlogfile "$passlog" -an -f mp4 /dev/null || return 1
+    BAR_LABEL="pass 2/2"
+    run_ff "$dur" -i "$in" -map 0:v:0 "${A[@]}" -c:v libx264 -b:v "${br}k" -maxrate "$((br * 3 / 2))k" -bufsize "$((br * 2))k" \
+      -preset "$V_PRESET" -pix_fmt yuv420p -vf "$vf" -pass 2 -passlogfile "$passlog" -movflags +faststart "$out"
+    local s=$?; BAR_LABEL=""; rm -f "$passlog"*; return $s
+  fi
+
+  if [ "$V_CODEC" = h265 ]; then
+    case $mode in balanced) crf=28 ;; strong) crf=32 ;; gentle) crf=24 ;; esac
+    run_ff "$dur" -i "$in" -map 0:v:0 "${A[@]}" -c:v libx265 -crf $crf -tag:v hvc1 -x265-params log-level=error \
+      -preset "$V_PRESET" -pix_fmt yuv420p -vf "$vf" -movflags +faststart "$out"
+  else
+    case $mode in balanced) crf=24 ;; strong) crf=28 ;; gentle) crf=20 ;; esac
+    run_ff "$dur" -i "$in" -map 0:v:0 "${A[@]}" -c:v libx264 -crf $crf \
+      -preset "$V_PRESET" -pix_fmt yuv420p -vf "$vf" -movflags +faststart "$out"
+  fi
+}
+
+# ─────────────────────────────────────────────────────────────── images
+image_settings() {
+  local webp=0
+  encoder_ok libwebp && webp=1
+  section "Images"
+  if [ $webp = 1 ]; then
+    menu "Image format?" 1 \
+      "Keep format  — JPEG stays JPEG, PNG stays PNG, TIFF/BMP become JPEG" \
+      "JPEG         — opens everywhere; transparency becomes white" \
+      "WebP         — smallest, keeps transparency; for websites & modern apps"
+    case $PICK in 1) I_FMT=keep ;; 2) I_FMT=jpg ;; 3) I_FMT=webp ;; esac
+  else
+    menu "Image format?" 1 \
+      "Keep format  — JPEG stays JPEG, PNG stays PNG, TIFF/BMP become JPEG" \
+      "JPEG         — opens everywhere; transparency becomes white"
+    case $PICK in 1) I_FMT=keep ;; 2) I_FMT=jpg ;; esac
+  fi
+  menu "How much should images shrink?" 1 \
+    "Balanced  — much smaller, looks the same" \
+    "Strong    — smallest, some visible loss up close" \
+    "Gentle    — near-identical, smaller gain"
+  case $PICK in 1) I_Q=80; I_LVL=balanced ;; 2) I_Q=62; I_LVL=strong ;; 3) I_Q=90; I_LVL=gentle ;; esac
+  menu "Maximum size (longest side)?" 1 \
+    "Keep original" "3840 px — 4K" "2560 px" "1920 px — Full HD, great for web & sharing" "1280 px"
+  case $PICK in 1) I_MAX=0 ;; 2) I_MAX=3840 ;; 3) I_MAX=2560 ;; 4) I_MAX=1920 ;; 5) I_MAX=1280 ;; esac
+}
+
+image_summary() {
+  local s
+  case $I_FMT in keep) s="same format" ;; jpg) s="JPEG" ;; webp) s="WebP" ;; esac
+  s="$s, $I_LVL"
+  [ "$I_MAX" -gt 0 ] && s="$s, ${I_MAX} px max"
+  printf '%s' "$s"
+}
+
+image_target_ext() { # input → output extension
+  local ext; ext="$(lower "${1##*.}")"
+  case "$I_FMT" in
+    jpg)  case "$ext" in gif) echo gif ;; *) echo jpg ;; esac ;;   # animated GIFs stay GIFs
+    webp) echo webp ;;
+    keep) case "$ext" in
+            jpg|jpeg|tif|tiff|bmp) echo jpg ;;
+            heic|heif) is_mac && echo heic || echo "$ext" ;;
+            *) echo "$ext" ;;
+          esac ;;
+  esac
+}
+
+exif_orientation() { # JPEG EXIF orientation (1-8), 1 if none
+  od -An -tu1 -v -N 131072 "$1" 2>/dev/null | awk '
+    function u16(p) { return le ? b[p] + 256*b[p+1] : 256*b[p] + b[p+1] }
+    function u32(p) { return le ? b[p] + 256*b[p+1] + 65536*b[p+2] + 16777216*b[p+3] \
+                                : 16777216*b[p] + 65536*b[p+1] + 256*b[p+2] + b[p+3] }
+    { for (i = 1; i <= NF; i++) b[n++] = $i }
+    END {
+      t = -1
+      for (i = 0; i < n - 6; i++)
+        if (b[i]==69 && b[i+1]==120 && b[i+2]==105 && b[i+3]==102 && b[i+4]==0 && b[i+5]==0) { t = i + 6; break }
+      if (t < 0) { print 1; exit }
+      le = (b[t] == 73)
+      ifd = t + u32(t + 4); cnt = u16(ifd)
+      for (k = 0; k < cnt && k < 200; k++) { e = ifd + 2 + 12*k; if (u16(e) == 274) { v = u16(e + 8); print (v>=1 && v<=8) ? v : 1; exit } }
+      print 1 }'
+}
+
+orient_filter() {
+  case "$1" in
+    2) echo "hflip," ;; 3) echo "hflip,vflip," ;; 4) echo "vflip," ;; 5) echo "transpose=0," ;;
+    6) echo "transpose=1," ;; 7) echo "transpose=3," ;; 8) echo "transpose=2," ;; *) echo "" ;;
+  esac
+}
+
+img_scale() { # longest side ≤ I_MAX, never upscale
+  [ "$I_MAX" -gt 0 ] || { echo "null"; return; }
+  echo "scale='if(gte(iw,ih),min(iw,$I_MAX),-1)':'if(gte(iw,ih),-1,min(ih,$I_MAX))'"
+}
+
+sips_dims() { sips -g pixelWidth -g pixelHeight "$1" 2>/dev/null | awk '/pixel(Width|Height)/ { if ($2 > m) m = $2 } END { print m+0 }'; }
+
+compress_image() { # in out
+  local in="$1" out="$2" ext oext rot vf src="$1" tmp
+  ext="$(lower "${in##*.}")"; oext="$(lower "${out##*.}")"
+
+  # macOS: sips handles JPEG and HEIC natively (keeps orientation & color profile)
+  if is_mac && has sips && { [ "$oext" = jpg ] || [ "$oext" = heic ]; } \
+     && { case "$ext" in png|gif|webp) [ -z "$FFMPEG" ] ;; *) true ;; esac; }; then
+    local resize=() fmt=jpeg longest
+    [ "$oext" = heic ] && fmt=heic
+    if [ "$I_MAX" -gt 0 ]; then longest="$(sips_dims "$in")"; [ "${longest:-0}" -gt "$I_MAX" ] && resize=(-Z "$I_MAX"); fi
+    sips -s format "$fmt" -s formatOptions "$I_Q" "${resize[@]}" "$in" --out "$out" >/dev/null 2>>"$ERRLOG" && return 0
+    rm -f "$out"   # fall back to ffmpeg below
+  fi
+
+  [ -n "$FFMPEG" ] || return 1
+  # HEIC on macOS: decode with sips first (older ffmpeg can't read HEIC)
+  if { [ "$ext" = heic ] || [ "$ext" = heif ]; } && is_mac && has sips; then
+    tmp="$WORK/heic.png"; sips -s format png "$in" --out "$tmp" >/dev/null 2>>"$ERRLOG" || return 1; src="$tmp"
+  fi
+  rot=""; case "$ext" in jpg|jpeg) rot="$(orient_filter "$(exif_orientation "$in")")" ;; esac
+  vf="${rot}$(img_scale)"
+
+  case "$oext" in
+    jpg)
+      local q=$(( (100 - I_Q) / 6 + 1 ))   # 80→4, 62→7, 90→2
+      ff_quiet -noautorotate -i "$src" -frames:v 1 \
+        -filter_complex "[0]format=rgba,${vf},split[a][b];[a]drawbox=t=fill:c=white[bg];[bg][b]overlay=format=auto,format=yuvj420p" \
+        -q:v "$q" "$out" ;;
+    webp)
+      if [ "$ext" = gif ]; then
+        ff_quiet -i "$src" -vf "$(img_scale)" -c:v libwebp -quality "$I_Q" -compression_level 6 -loop 0 -an "$out"
+      else
+        ff_quiet -noautorotate -i "$src" -frames:v 1 -vf "$vf" -c:v libwebp -quality "$I_Q" -compression_level 6 "$out"
+      fi ;;
+    png)
+      tmp="$src"
+      if [ "$I_MAX" -gt 0 ]; then tmp="$WORK/resized.png"; ff_quiet -i "$src" -frames:v 1 -vf "$(img_scale)" "$tmp" || return 1; fi
+      if has pngquant; then
+        local qr; case $I_LVL in balanced) qr="60-85" ;; strong) qr="35-70" ;; gentle) qr="80-95" ;; esac
+        pngquant --quality="$qr" --speed 3 --strip --force --output "$out" -- "$tmp" 2>>"$ERRLOG" && return 0
+      fi
+      ff_quiet -i "$tmp" -frames:v 1 -compression_level 100 -pred mixed "$out" ;;
+    gif)
+      [ "$I_MAX" -gt 0 ] || return 3   # nothing useful to do: keep original
+      ff_quiet -i "$src" -filter_complex "$(img_scale),split[a][b];[a]palettegen=stats_mode=diff[p];[b][p]paletteuse=dither=sierra2_4a" "$out" ;;
+    *) return 3 ;;   # e.g. HEIC without macOS: keep the original
+  esac
+}
+
+# ─────────────────────────────────────────────────────────────── PDF
+pdf_settings() {
+  section "PDFs"
+  menu "How much should PDFs shrink?" 1 \
+    "Balanced  — 150 dpi images: crisp on screen, fine to print at home" \
+    "Strong    — 72 dpi images: smallest, for screens only" \
+    "Gentle    — 300 dpi images: print quality"
+  case $PICK in 1) P_SET=ebook; P_LVL=balanced ;; 2) P_SET=screen; P_LVL=strong ;; 3) P_SET=printer; P_LVL=gentle ;; esac
+}
+pdf_summary() { printf '%s' "$P_LVL"; }
+
+compress_pdf() { # in out
+  [ -n "$LIVE" ] && printf '%s   %s%s' "$CLR" "${D}working…" "${N}"
+  "$GS" -sDEVICE=pdfwrite -dCompatibilityLevel=1.5 -dPDFSETTINGS=/$P_SET -dNOPAUSE -dQUIET -dBATCH -dSAFER \
+    -dDetectDuplicateImages=true -dCompressFonts=true -sOutputFile="$2" "$1" </dev/null >>"$ERRLOG" 2>&1
+}
+
+# ─────────────────────────────────────────────────────────────── audio
+audio_settings() {
+  section "Audio"
+  if encoder_ok libopus; then
+    menu "Audio format?" 1 \
+      "MP3   — plays everywhere" \
+      "AAC   — .m4a, great on Apple devices, a bit better than MP3" \
+      "Opus  — smallest for the quality; modern apps & browsers"
+  else
+    menu "Audio format?" 1 "MP3   — plays everywhere" "AAC   — .m4a, great on Apple devices"
+  fi
+  case $PICK in 1) A_FMT=mp3 ;; 2) A_FMT=m4a ;; 3) A_FMT=opus ;; esac
+  menu "Quality?" 1 \
+    "Balanced  — music sounds great" \
+    "Strong    — smallest; perfect for voice, podcasts, memos" \
+    "Gentle    — high quality"
+  case $PICK in 1) A_LVL=balanced ;; 2) A_LVL=strong ;; 3) A_LVL=gentle ;; esac
+}
+audio_summary() { printf '%s, %s' "$(echo $A_FMT | tr a-z A-Z | sed 's/M4A/AAC/')" "$A_LVL"; }
+
+compress_audio() { # in out
+  local in="$1" out="$2" dur br codec
+  dur="$(duration_of "$in")"; dur="${dur:-0}"
+  case "$A_FMT:$A_LVL" in
+    mp3:balanced) codec=libmp3lame; br=160k ;; mp3:strong) codec=libmp3lame; br=96k ;; mp3:gentle) codec=libmp3lame; br=256k ;;
+    m4a:balanced) codec=aac; br=128k ;;        m4a:strong) codec=aac; br=80k ;;         m4a:gentle) codec=aac; br=192k ;;
+    opus:balanced) codec=libopus; br=96k ;;    opus:strong) codec=libopus; br=48k ;;    opus:gentle) codec=libopus; br=160k ;;
+  esac
+  run_ff "$dur" -i "$in" -map 0:a:0 -c:a "$codec" -b:a "$br" -map_metadata 0 "$out"
+}
+
+# ═══════════════════════════════════════════════════════════════ main
+OUTPUT=""; RECURSIVE=""; ASSUME_YES=""; TYPES=""; TARGET_MB=""
+ARGS=()
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -h|--help) usage; exit 0 ;;
+    -V|--version) say "$NAME $VERSION"; exit 0 ;;
+    --update) do_update ;;
+    --uninstall) do_uninstall ;;
+    -y|--yes) ASSUME_YES=1 ;;
+    -r|--recursive) RECURSIVE=1 ;;
+    -o|--output) shift; OUTPUT="$1" ;;
+    -t|--type) shift; TYPES="$(lower "$1")" ;;
+    -s|--size) shift; TARGET_MB="${1%[mM][bB]}" ;;
+    --) shift; while [ $# -gt 0 ]; do ARGS+=("$1"); shift; done; break ;;
+    -*) err "Unknown option: $1  (see $NAME --help)"; exit 2 ;;
+    *) ARGS+=("$1") ;;
+  esac
+  shift
+done
+if [ -n "$OUTPUT" ]; then OUTPUT="$(clean_path "$OUTPUT")"; mkdir -p "$OUTPUT" && OUTPUT="$(cd "$OUTPUT" && pwd)" || { err "Can't use output folder $OUTPUT"; exit 1; }; fi
+if [ -n "$TARGET_MB" ] && ! printf '%s' "$TARGET_MB" | grep -Eq '^[0-9]+([.][0-9]+)?$'; then err "--size expects a number of MB, e.g. 25"; exit 2; fi
+
+banner
+say "${RAIL}┌${N}  ${A}${B}$NAME${N} ${D}— let's make things smaller${N}"
+
+if [ ${#ARGS[@]} -gt 0 ]; then
+  for a in "${ARGS[@]}"; do
+    p="$(clean_path "$a")"
+    if [ -d "$p" ]; then add_folder "$(cd "$p" && pwd)"
+    elif [ -f "$p" ]; then d="$(cd "$(dirname "$p")" && pwd)"; add_file "$d/$(basename "$p")" "$d"
+    else err "Not found: $a"; fi
+  done
+else
+  ask_folder
+fi
+
+# Keep only requested kinds
+if [ -n "$TYPES" ]; then
+  F2=(); R2=(); K2=()
+  for i in "${!FILES[@]}"; do
+    case ",$TYPES," in *",${KINDS[$i]},"*|*",${KINDS[$i]}s,"*) F2+=("${FILES[$i]}"); R2+=("${ROOTS[$i]}"); K2+=("${KINDS[$i]}") ;; esac
+  done
+  FILES=("${F2[@]}"); ROOTS=("${R2[@]}"); KINDS=("${K2[@]}")
+fi
+
+NV=$(count_kind video); NI=$(count_kind image); NP=$(count_kind pdf); NA=$(count_kind audio)
+if [ ${#FILES[@]} -eq 0 ]; then
+  r_bar; err "Nothing to compress here (looked for videos, images, PDFs and audio$( [ -z "$RECURSIVE" ] && echo '; add -r to include subfolders'))."
+  exit 1
+fi
+
+found=""
+[ $NV -gt 0 ] && found="$found$(plural $NV video) · "
+[ $NI -gt 0 ] && found="$found$(plural $NI image) · "
+[ $NP -gt 0 ] && found="$found$(plural $NP PDF) · "
+[ $NA -gt 0 ] && found="$found$(plural $NA 'audio file') · "
+r_bar
+r_ok "Found ${B}${found% · }${N}"
+
+# What to compress
+kinds_present=0; for n in $NV $NI $NP $NA; do [ $n -gt 0 ] && kinds_present=$((kinds_present + 1)); done
+DO_V=$NV; DO_I=$NI; DO_P=$NP; DO_A=$NA
+if [ $kinds_present -gt 1 ] && [ -z "$TYPES" ]; then
+  opts=("Everything"); map=(all)
+  [ $NV -gt 0 ] && { opts+=("Videos only"); map+=(video); }
+  [ $NI -gt 0 ] && { opts+=("Images only"); map+=(image); }
+  [ $NP -gt 0 ] && { opts+=("PDFs only");   map+=(pdf); }
+  [ $NA -gt 0 ] && { opts+=("Audio only");  map+=(audio); }
+  menu "What do you want to compress?" 1 "${opts[@]}"
+  case "${map[$((PICK - 1))]}" in
+    video) DO_I=0; DO_P=0; DO_A=0 ;; image) DO_V=0; DO_P=0; DO_A=0 ;;
+    pdf)   DO_V=0; DO_I=0; DO_A=0 ;; audio) DO_V=0; DO_I=0; DO_P=0 ;;
+  esac
+fi
+
+# Tools
+if [ $DO_V -gt 0 ] || [ $DO_I -gt 0 ] || [ $DO_A -gt 0 ]; then
+  if ! need_ffmpeg; then
+    FFMPEG=""; DO_V=0; DO_A=0
+    if [ $DO_I -gt 0 ]; then
+      if is_mac && has sips; then r_line "${D}Images will be handled by macOS itself (JPEG/HEIC output only).${N}"; else DO_I=0; fi
+    fi
+  fi
+fi
+[ $DO_P -gt 0 ] && { need_gs || DO_P=0; }
+if [ -z "$FFMPEG" ]; then DO_V=0; DO_A=0; fi
+if [ $((DO_V + DO_I + DO_P + DO_A)) -eq 0 ]; then err "Nothing left to do without the missing tools."; exit 1; fi
+
+# Questions
+[ $DO_V -gt 0 ] && video_settings
+[ $DO_I -gt 0 ] && image_settings
+[ $DO_P -gt 0 ] && pdf_settings
+[ $DO_A -gt 0 ] && audio_settings
+
+r_bar
+r_done "${B}The plan${N}"
+if [ -n "$OUTPUT" ]; then r_line "${D}output${N}   ${INFO}$OUTPUT${N}"
+else r_line "${D}output${N}   ${INFO}$OUT_DIR_NAME/${N} next to the originals ${D}(originals untouched)${N}"; fi
+[ $DO_V -gt 0 ] && r_line "${D}videos${N}   $(video_summary)"
+[ $DO_I -gt 0 ] && r_line "${D}images${N}   $(image_summary)"
+[ $DO_P -gt 0 ] && r_line "${D}pdfs${N}     $(pdf_summary)"
+[ $DO_A -gt 0 ] && r_line "${D}audio${N}    $(audio_summary)"
+if [ -z "$ASSUME_YES" ]; then
+  NSEL=0
+  for i in "${!KINDS[@]}"; do case "${KINDS[$i]}" in video) [ $DO_V -gt 0 ] ;; image) [ $DO_I -gt 0 ] ;; pdf) [ $DO_P -gt 0 ] ;; audio) [ $DO_A -gt 0 ] ;; esac && NSEL=$((NSEL + 1)); done
+  menu "Ready?" 1 "Start — compress $(plural $NSEL file)" "Cancel"
+  [ "$PICK" = 1 ] || { r_bar; r_end "${D}Cancelled — nothing was changed.${N}"; exit 0; }
+fi
+
+# ─────────────────────────────────────────────────────────────── run
+WORK="$(mktemp -d)"
+ERRLOG="$WORK/errors.log"; : > "$ERRLOG"
+CURRENT_TMP=""
+cleanup() { [ -n "$CURRENT_TMP" ] && rm -f "$CURRENT_TMP"; rm -rf "$WORK"; }
+on_interrupt() {
+  printf '\n'; cleanup; cursor_show
+  r_end "${WARN}Stopped.${N} Finished files are in ${INFO}$OUT_DIR_NAME/${N} — run the same command again to resume."
+  exit 130
+}
+trap on_interrupt INT TERM
+
+TOTAL=0
+for i in "${!FILES[@]}"; do
+  case "${KINDS[$i]}" in video) [ $DO_V -gt 0 ] ;; image) [ $DO_I -gt 0 ] ;; pdf) [ $DO_P -gt 0 ] ;; audio) [ $DO_A -gt 0 ] ;; esac && TOTAL=$((TOTAL + 1))
+done
+
+DONE=0; KEPT=0; SKIP=0; FAIL=0; BEFORE=0; AFTER=0; OUT_DIRS=$'\n'; LOGFILES=""
+START=$(date +%s); n=0
+r_bar
+r_done "${B}Compressing${N} ${D}$(plural $TOTAL file)${N}"
+cursor_hide
+
+for i in "${!FILES[@]}"; do
+  IN="${FILES[$i]}"; ROOT="${ROOTS[$i]}"; KIND="${KINDS[$i]}"
+  case "$KIND" in video) [ $DO_V -gt 0 ] ;; image) [ $DO_I -gt 0 ] ;; pdf) [ $DO_P -gt 0 ] ;; audio) [ $DO_A -gt 0 ] ;; esac || continue
+  n=$((n + 1))
+  case "$KIND" in
+    video) EXT=mp4 ;; image) EXT="$(image_target_ext "$IN")" ;; pdf) EXT=pdf ;; audio) EXT="$A_FMT" ;;
+  esac
+  DEST="$(dest_for "$IN" "$ROOT" "$EXT")"
+  DDIR="$(dirname "$DEST")"
+  REL="${IN#"$ROOT"/}"
+
+  r_bar
+  r_line "${B}$REL${N}  ${RAIL}$n/$TOTAL${N}"
+  if [ -e "$DEST" ]; then
+    r_line "${D}↷  already done earlier — skipped${N}"
+    SKIP=$((SKIP + 1)); continue
+  fi
+  mkdir -p "$DDIR" || { FAIL=$((FAIL + 1)); continue; }
+  case "$OUT_DIRS" in *$'\n'"$DDIR"$'\n'*) ;; *) OUT_DIRS="$OUT_DIRS$DDIR"$'\n' ;; esac
+
+  CURRENT_TMP="$DDIR/.$(basename "$DEST").part.$EXT"
+  : > "$ERRLOG"; TARGET_NOTE=""; BAR_LABEL=""
+  T0=$(date +%s); BAR_T0=$T0
+  case "$KIND" in
+    video) compress_video "$IN" "$CURRENT_TMP" ;;
+    image) compress_image "$IN" "$CURRENT_TMP" ;;
+    pdf)   compress_pdf   "$IN" "$CURRENT_TMP" ;;
+    audio) compress_audio "$IN" "$CURRENT_TMP" ;;
+  esac
+  rc=$?
+  S_IN=$(filesize "$IN")
+  if [ $rc -eq 0 ] && [ -s "$CURRENT_TMP" ]; then
+    S_OUT=$(filesize "$CURRENT_TMP")
+    if [ "$S_OUT" -lt "$S_IN" ]; then
+      mv "$CURRENT_TMP" "$DEST"; touch -r "$IN" "$DEST" 2>/dev/null
+      secs=$(( $(date +%s) - T0 ))
+      printf '%s%s│%s  %s✓%s %s  %s → %s  %s−%s%%%s%s\n' "$CLR" "$RAIL" "$N" "$OK" "$N" "$(ratio_bar $S_IN $S_OUT)" \
+        "${D}$(human $S_IN)${N}" "${B}$(human $S_OUT)${N}" "$OK$B" "$(pct_saved $S_IN $S_OUT)" "$N" \
+        "$( [ $secs -gt 2 ] && printf '  %s%s%s' "$RAIL" "$(mmss $secs)" "$N" )"
+      [ -n "$TARGET_NOTE" ] && r_line "${WARN}▲  $TARGET_NOTE${N}"
+      DONE=$((DONE + 1)); BEFORE=$((BEFORE + S_IN)); AFTER=$((AFTER + S_OUT))
+      CURRENT_TMP=""; continue
+    fi
+    rc=3
+  fi
+  rm -f "$CURRENT_TMP"; CURRENT_TMP=""
+  if [ $rc -eq 3 ]; then
+    # Already well compressed: copy the original so the folder is complete.
+    KEEP="$DDIR/$(basename "$IN")"
+    [ "$KEEP" != "$DEST" ] && [ -e "$KEEP" ] && KEEP="$DEST"
+    cp -p "$IN" "$KEEP"
+    printf '%s%s│%s  %s\n' "$CLR" "$RAIL" "$N" "${WARN}≈${N}  ${D}already well compressed — copied as is${N}"
+    KEPT=$((KEPT + 1))
+  else
+    LOGF="$DDIR/.squish-errors.log"
+    { echo "=== $(date) — $IN"; tail -20 "$ERRLOG"; } >> "$LOGF"
+    case " $LOGFILES " in *" $LOGF "*) ;; *) LOGFILES="$LOGFILES $LOGF" ;; esac
+    printf '%s%s│%s  %s\n' "$CLR" "$RAIL" "$N" "${ERRC}✕  couldn't compress this file${N}"
+    FAIL=$((FAIL + 1))
+  fi
+done
+cleanup
+
+# ─────────────────────────────────────────────────────────────── summary
+cursor_show
+ELAPSED=$(( $(date +%s) - START ))
+first_dir="$(printf '%s' "$OUT_DIRS" | sed -n '2p')"
+top="$first_dir"
+[ -n "$OUTPUT" ] && top="$OUTPUT"
+[ -z "$OUTPUT" ] && [ -n "$RECURSIVE" ] && [ -n "$first_dir" ] && top="${ROOTS[0]}/$OUT_DIR_NAME"
+pretty_top="$top"; case "$top" in "$HOME"/*) pretty_top="~${top#"$HOME"}" ;; esac
+
+r_bar
+r_done "${B}Done${N} ${D}in $(mmss $ELAPSED)${N}"
+if [ $DONE -gt 0 ]; then
+  SAVED=$((BEFORE - AFTER)); P=$(pct_saved $BEFORE $AFTER)
+  r_bar
+  if [ -n "$LIVE" ]; then
+    big_number "$P"
+    r_line "  ${BIGROWS[0]}   ${B}saved $(human $SAVED)${N}"
+    r_line "  ${BIGROWS[1]}   ${D}$(human $BEFORE) → $(human $AFTER)${N}"
+    r_line "  ${BIGROWS[2]}   ${D}$(plural $DONE file) compressed${N}"
+    r_bar
+    BW=34; AW=$(( (AFTER * BW + BEFORE - 1) / BEFORE )); [ $AW -lt 1 ] && AW=1
+    r_line "  ${D}before${N}  $(grad_bar $BW $BW)  $(human $BEFORE)"
+    r_line "  ${D}after ${N}  $(grad_bar $AW $BW)  ${B}$(human $AFTER)${N}"
+  else
+    r_line "$(plural $DONE file) compressed: $(human $BEFORE) -> $(human $AFTER), saved $(human $SAVED) (-$P%)"
+  fi
+fi
+if [ $KEPT -gt 0 ] || [ $SKIP -gt 0 ] || [ $FAIL -gt 0 ]; then
+  r_bar
+  [ $KEPT -gt 0 ] && r_line "${WARN}≈${N}  $KEPT already well compressed, copied as is"
+  [ $SKIP -gt 0 ] && r_line "${D}↷  $SKIP already done earlier, skipped${N}"
+  [ $FAIL -gt 0 ] && r_line "${ERRC}✕  $FAIL failed${N} ${D}— details:${LOGFILES}${N}"
+fi
+r_bar
+if [ -n "$first_dir" ]; then
+  r_end "Saved in ${INFO}${B}$pretty_top${N}"
+  is_mac && [ -z "$ASSUME_YES" ] && [ -t 1 ] && open "$top" 2>/dev/null
+else
+  r_end "${D}Nothing new was written.${N}"
+fi
+say ""
+exit 0
