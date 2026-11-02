@@ -18,7 +18,9 @@ echo "  ${B}Installing $NAME…${N}"
 mkdir -p "$BIN_DIR" || exit 1
 
 # Use the local copy when run from a cloned/downloaded folder, otherwise download it.
-HERE="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd)"
+# (Only when this file was run from disk: with `curl … | bash` there is no script path.)
+HERE=""
+[ -f "${BASH_SOURCE[0]:-}" ] && HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"
 if [ -n "$HERE" ] && [ -f "$HERE/$NAME" ] && head -1 "$HERE/$NAME" | grep -q bash; then
   cp "$HERE/$NAME" "$DEST"
 else

@@ -323,13 +323,17 @@ need_ffmpeg() {
     brew install ffmpeg && find_ffmpeg && return 0
   fi
   if is_mac && confirm "Download a standalone FFmpeg just for $NAME (~20 MB)?" y; then
-    local url tmp
+    local url sum tmp
     case "$(uname -m)" in
-      arm64) url="https://registry.npmjs.org/@ffmpeg-installer/darwin-arm64/-/darwin-arm64-4.1.5.tgz" ;;
-      *)     url="https://registry.npmjs.org/@ffmpeg-installer/darwin-x64/-/darwin-x64-4.1.0.tgz" ;;
+      arm64) url="https://registry.npmjs.org/@ffmpeg-installer/darwin-arm64/-/darwin-arm64-4.1.5.tgz"
+             sum=8a4306e64ed3ba3cb5e51093266c8c72f65314bec146c899a50426f21aaa0f44 ;;
+      *)     url="https://registry.npmjs.org/@ffmpeg-installer/darwin-x64/-/darwin-x64-4.1.0.tgz"
+             sum=4f22b9ce0c0507e3f4cd6e822fb23214abc5fb70d48eb046ff94a1484299cdbf ;;
     esac
     tmp="$(mktemp -d)"
-    if curl -fL# "$url" -o "$tmp/ff.tgz" && tar -xzf "$tmp/ff.tgz" -C "$tmp" package/ffmpeg; then
+    if curl -fL# "$url" -o "$tmp/ff.tgz" \
+       && { [ "$(shasum -a 256 "$tmp/ff.tgz" 2>/dev/null | cut -c1-64)" = "$sum" ] || { err "Download corrupted (checksum mismatch)"; false; }; } \
+       && tar -xzf "$tmp/ff.tgz" -C "$tmp" package/ffmpeg; then
       mkdir -p "$SUPPORT" && mv "$tmp/package/ffmpeg" "$SUPPORT/ffmpeg" && chmod 755 "$SUPPORT/ffmpeg"
       xattr -c "$SUPPORT/ffmpeg" 2>/dev/null
     fi
@@ -419,7 +423,8 @@ dest_for() { # dest_for file root newext → prints path, reserves it
   if [ -n "$OUTPUT" ]; then dir="$OUTPUT"; else dir="$root/$OUT_DIR_NAME"; fi
   [ -n "$rel" ] && dir="$dir/$rel"
   out="$dir/$stem.$ext"
-  while case "$USED" in *$'\n'"$out"$'\n'*) true ;; *) false ;; esac; do out="$dir/$stem-$n.$ext"; n=$((n + 1)); done
+  # never write over the original (e.g. -o pointing at the source folder)
+  while [ "$out" = "$f" ] || case "$USED" in *$'\n'"$out"$'\n'*) true ;; *) false ;; esac; do out="$dir/$stem-$n.$ext"; n=$((n + 1)); done
   USED="$USED$out"$'\n'
   printf '%s' "$out"
 }
@@ -495,7 +500,7 @@ compress_video() { # in out
   else
     vf="scale=trunc(iw/2)*2:trunc(ih/2)*2"
   fi
-  local A=(); [ "$V_AUDIO" = 1 ] && A=(-map "0:a:0?" -c:a aac -b:a 128k) || A=(-an)
+  local AUD=(); [ "$V_AUDIO" = 1 ] && AUD=(-map "0:a:0?" -c:a aac -b:a 128k) || AUD=(-an)
 
   local mode="$V_MODE"
   # Target size: a file already under the target just gets the balanced treatment.
@@ -506,7 +511,7 @@ compress_video() { # in out
     [ "$V_AUDIO" = 1 ] && abr=128 || abr=0
     br=$(awk -v mb="$TARGET_MB" -v d="$dur" -v a="$abr" 'BEGIN { printf "%d", mb*8192*0.96/d - a }')
     if [ "$br" -lt 150 ]; then
-      [ "$V_AUDIO" = 1 ] && { A=(-map "0:a:0?" -c:a aac -b:a 64k); br=$((br + 64)); }
+      [ "$V_AUDIO" = 1 ] && { AUD=(-map "0:a:0?" -c:a aac -b:a 64k); br=$((br + 64)); }
       [ "$br" -lt 80 ] && br=80
       TARGET_NOTE="too long for ${TARGET_MB} MB at good quality — did its best"
     fi
@@ -515,18 +520,18 @@ compress_video() { # in out
     run_ff "$dur" -i "$in" -map 0:v:0 -c:v libx264 -b:v "${br}k" -preset "$V_PRESET" -pix_fmt yuv420p \
       -vf "$vf" -pass 1 -passlogfile "$passlog" -an -f mp4 /dev/null || return 1
     BAR_LABEL="pass 2/2"
-    run_ff "$dur" -i "$in" -map 0:v:0 "${A[@]}" -c:v libx264 -b:v "${br}k" -maxrate "$((br * 3 / 2))k" -bufsize "$((br * 2))k" \
+    run_ff "$dur" -i "$in" -map 0:v:0 "${AUD[@]}" -c:v libx264 -b:v "${br}k" -maxrate "$((br * 3 / 2))k" -bufsize "$((br * 2))k" \
       -preset "$V_PRESET" -pix_fmt yuv420p -vf "$vf" -pass 2 -passlogfile "$passlog" -movflags +faststart "$out"
     local s=$?; BAR_LABEL=""; rm -f "$passlog"*; return $s
   fi
 
   if [ "$V_CODEC" = h265 ]; then
     case $mode in balanced) crf=28 ;; strong) crf=32 ;; gentle) crf=24 ;; esac
-    run_ff "$dur" -i "$in" -map 0:v:0 "${A[@]}" -c:v libx265 -crf $crf -tag:v hvc1 -x265-params log-level=error \
+    run_ff "$dur" -i "$in" -map 0:v:0 "${AUD[@]}" -c:v libx265 -crf $crf -tag:v hvc1 -x265-params log-level=error \
       -preset "$V_PRESET" -pix_fmt yuv420p -vf "$vf" -movflags +faststart "$out"
   else
     case $mode in balanced) crf=24 ;; strong) crf=28 ;; gentle) crf=20 ;; esac
-    run_ff "$dur" -i "$in" -map 0:v:0 "${A[@]}" -c:v libx264 -crf $crf \
+    run_ff "$dur" -i "$in" -map 0:v:0 "${AUD[@]}" -c:v libx264 -crf $crf \
       -preset "$V_PRESET" -pix_fmt yuv420p -vf "$vf" -movflags +faststart "$out"
   fi
 }
@@ -853,7 +858,9 @@ for i in "${!FILES[@]}"; do
 
   r_bar
   r_line "${B}$REL${N}  ${RAIL}$n/$TOTAL${N}"
-  if [ -e "$DEST" ]; then
+  KEEP="$DDIR/$(basename "$IN")"   # where an already-small original is copied
+  [ "$KEEP" = "$IN" ] && KEEP="$DEST"
+  if [ -e "$DEST" ] || { [ "$KEEP" != "$DEST" ] && [ -e "$KEEP" ] && [ "$(kind_of "$KEEP")" = "$KIND" ] && [ "$(filesize "$KEEP")" = "$(filesize "$IN")" ]; }; then
     r_line "${D}↷  already done earlier — skipped${N}"
     SKIP=$((SKIP + 1)); continue
   fi
@@ -888,7 +895,6 @@ for i in "${!FILES[@]}"; do
   rm -f "$CURRENT_TMP"; CURRENT_TMP=""
   if [ $rc -eq 3 ]; then
     # Already well compressed: copy the original so the folder is complete.
-    KEEP="$DDIR/$(basename "$IN")"
     [ "$KEEP" != "$DEST" ] && [ -e "$KEEP" ] && KEEP="$DEST"
     cp -p "$IN" "$KEEP"
     printf '%s%s│%s  %s\n' "$CLR" "$RAIL" "$N" "${WARN}≈${N}  ${D}already well compressed — copied as is${N}"
