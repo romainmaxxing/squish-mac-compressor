@@ -1,0 +1,38 @@
+name: Bug report
+description: Something didn't compress, crashed, or looked wrong
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What you ran, what you expected, what you got.
+    validations:
+      required: true
+  - type: textarea
+    id: output
+    attributes:
+      label: Terminal output
+      description: Paste what squish printed. If a file failed, add the content of `.squish-errors.log` from the output folder.
+      render: text
+  - type: input
+    id: version
+    attributes:
+      label: squish version
+      description: Output of `squish --version`
+      placeholder: squish 1.0.0
+    validations:
+      required: true
+  - type: input
+    id: system
+    attributes:
+      label: System
+      description: macOS version and chip (Apple Silicon / Intel), or Linux distribution
+      placeholder: macOS 15.1, Apple Silicon
+    validations:
+      required: true
+  - type: input
+    id: tools
+    attributes:
+      label: FFmpeg / Ghostscript version
+      description: Output of `ffmpeg -version | head -1` and `gs --version` (if relevant)

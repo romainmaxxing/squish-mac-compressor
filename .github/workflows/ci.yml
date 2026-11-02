@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: ShellCheck
+        run: shellcheck -S error squish install.sh tests/smoke.sh
+
+  smoke:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install FFmpeg and Ghostscript (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg ghostscript pngquant
+      - name: Install FFmpeg and Ghostscript (macOS)
+        if: runner.os == 'macOS'
+        run: brew install ffmpeg ghostscript pngquant
+      # On macOS this is Apple's /bin/bash 3.2, the one squish has to work with.
+      - name: Smoke test
+        run: /bin/bash tests/smoke.sh
+      - name: Installer
+        run: |
+          HOME="$RUNNER_TEMP/home" /bin/bash install.sh
+          "$RUNNER_TEMP/home/.local/bin/squish" --version

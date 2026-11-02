@@ -1,5 +1,9 @@
 # squish
 
+[![CI](https://github.com/romainmaxxing/squish-mac-compressor/actions/workflows/ci.yml/badge.svg)](https://github.com/romainmaxxing/squish-mac-compressor/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-ff5faf.svg)](LICENSE)
+![macOS & Linux](https://img.shields.io/badge/macOS%20%26%20Linux-bash%203.2%2B-875fff.svg)
+
 **Compress videos, images, PDFs and audio from your terminal.** Free and open source (MIT). Point it at a folder, answer a few questions (or just hit Enter), and get everything back smaller in a `compressed` folder. Originals are never touched.
 
 ```
@@ -75,11 +79,50 @@ squish -s 25 -t video ~/Clips   # make every video fit under 25 MB (Discord, ema
 - Photos are rotated correctly, keep their dates, and transparent PNGs stay transparent (except in JPEG, where the background becomes white).
 - Errors are written to `.squish-errors.log` in the output folder.
 
+## Requirements
+
+- macOS (any recent version, Apple Silicon or Intel) or Linux, with `bash` 3.2 or later and `curl`.
+- [FFmpeg](https://ffmpeg.org) for videos, audio and most images. If it is missing, squish offers
+  `brew install ffmpeg`, or on a Mac without Homebrew a standalone FFmpeg (~20 MB, checksum-verified) kept in
+  `~/.squish`. On Linux: `sudo apt install ffmpeg` (or your distribution's package).
+- [Ghostscript](https://ghostscript.com) for PDFs (`brew install ghostscript` / `sudo apt install ghostscript`).
+- Optional: [pngquant](https://pngquant.org) for much smaller PNGs (`brew install pngquant`).
+
+On a Mac, JPEG and HEIC photos are handled by `sips`, which is built into macOS.
+
+## What the presets do
+
+| | Balanced (default) | Strong | Gentle |
+|---|---|---|---|
+| **Video** H.264 / H.265 | CRF 24 / 28 | CRF 28 / 32 | CRF 20 / 24 |
+| **Images** | quality 80 | quality 62 | quality 90 |
+| **PDF** (images inside) | 150 dpi | 72 dpi | 300 dpi |
+| **Audio** MP3 / AAC / Opus | 160 / 128 / 96 kbps | 96 / 80 / 48 kbps | 256 / 192 / 160 kbps |
+
+**Target size** (`-s 25`) computes the bitrate from the video length and encodes in two passes, so the file
+lands just under the limit. Videos already under the limit get the Balanced treatment.
+
+## Troubleshooting
+
+- **`squish: command not found`** right after installing: open a new Terminal window (the installer added
+  `~/.local/bin` to your PATH in `~/.zshrc`).
+- **A file shows `couldn't compress this file`**: details are in `.squish-errors.log` in the output folder
+  (often a damaged or password-protected file).
+- **No colours / no arrow keys**: when squish is not in a real terminal (or with `NO_COLOR=1`), it falls back
+  to plain text and numbered menus — type the number and press Enter.
+- **iPhone HDR videos look a little washed out**: squish encodes in 8-bit SDR for maximum compatibility;
+  keep the originals of HDR clips you care about.
+
 ## Uninstall
 
 ```bash
 squish --uninstall
 ```
+
+## Contributing
+
+Bug reports, ideas and pull requests are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md).
+The whole program is one readable bash script: [`squish`](squish).
 
 ## License
 

@@ -1,0 +1,11 @@
+name: Feature request
+description: A format, an option or an idea
+labels: [enhancement]
+body:
+  - type: textarea
+    id: need
+    attributes:
+      label: What would you like squish to do?
+      description: Describe the situation (what you are compressing, for what) rather than only the solution.
+    validations:
+      required: true
