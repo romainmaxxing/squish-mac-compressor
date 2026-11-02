@@ -75,6 +75,7 @@ h1 span { background: var(--grad); -webkit-background-clip: text; background-cli
 .k-dim { color: #8a8a8a; } .k-rail { color: #585858; } .k-b { font-weight: 700; } .k-a { color: #ff5faf; } .k-a2 { color: #af87ff; }
 .k-ok { color: #87d787; } .k-warn { color: #ffd75f; } .k-info { color: #87d7ff; } .k-prompt { color: #87d787; }
 .drop-target { outline: 1px dashed transparent; transition: outline-color .2s; }
+.screen .k-logo { display: inline-block; line-height: 1.08; vertical-align: top; }
 .terminal.hover .screen { box-shadow: inset 0 0 0 2px rgba(135,95,255,.55); }
 
 .folder { position: absolute; left: 0; top: 0; white-space: nowrap; transform-origin: 0 0; z-index: 5; display: flex; align-items: center; gap: 10px; padding: 10px 14px 10px 10px; border-radius: 12px; background: var(--card); border: 1px solid var(--line); color: var(--ink); font: 600 14px "Instrument Sans", sans-serif; box-shadow: 0 18px 40px -12px rgba(0,0,0,.45); opacity: 0; pointer-events: none; transition: transform .9s cubic-bezier(.3,.7,.3,1), opacity .25s; }
@@ -465,7 +466,9 @@ document.querySelectorAll('[data-copy]').forEach(btn => {
     await sleep(450);
     lines.push(live); live = ''; render();
     await add('');
-    for (const l of logo) await add(l, 45);
+    // the logo sits in its own tight block so its box-drawing strokes join up, like in a real terminal
+    lines.push('');
+    for (let r = 1; r <= logo.length; r++) { lines[lines.length - 1] = '<span class="k-logo">' + logo.slice(0, r).join('\n') + '</span>'; render(); await sleep(45); }
     await add('   ' + k('k-dim', 'videos · images · pdfs · audio') + '  ' + k('k-rail', '─────────') + '  ' + k('k-a2', 'v1.0.0'));
     await add('');
     await add(k('k-rail', '┌') + '  ' + k('k-a k-b', 'squish') + ' ' + k('k-dim', "— let's make things smaller"));
