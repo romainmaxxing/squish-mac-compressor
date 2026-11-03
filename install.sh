@@ -49,7 +49,14 @@ case ":$PATH:" in
     ;;
 esac
 
-echo "  ${G}✔ $NAME $("$DEST" --version | awk '{print $2}') installed${N} ${D}→ $DEST${N}"
+VER="$("$DEST" --version | awk '{print $2}')"
+echo "  ${G}✔ $NAME $VER installed${N} ${D}→ $DEST${N}"
+
+# Anonymous install counter: OS, CPU and version only (no IP stored, nothing else sent).
+# Opt out with SQUISH_NO_PING=1.
+if [ -z "${SQUISH_NO_PING:-}" ] && [ -z "${CI:-}" ]; then
+  curl -fsS -m 3 -o /dev/null "https://get.squish-compressor.com/ping?ev=install&os=$(uname -s)&arch=$(uname -m)&v=$VER" 2>/dev/null || true
+fi
 echo ""
 if [ -n "$RELOAD" ]; then
   echo "  Open a new Terminal window, then type:  ${B}$NAME${N}"

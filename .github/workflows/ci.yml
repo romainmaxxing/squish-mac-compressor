@@ -32,5 +32,5 @@ jobs:
         run: /bin/bash tests/smoke.sh
       - name: Installer
         run: |
-          HOME="$RUNNER_TEMP/home" /bin/bash install.sh
+          HOME="$RUNNER_TEMP/home" SQUISH_NO_PING=1 /bin/bash install.sh
           "$RUNNER_TEMP/home/.local/bin/squish" --version

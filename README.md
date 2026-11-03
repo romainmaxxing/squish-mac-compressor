@@ -80,6 +80,7 @@ squish -s 25 -t video ~/Clips   # make every video fit under 25 MB (Discord, ema
 - **Resumable.** Stop with Ctrl-C, run again: finished files are skipped.
 - Photos are rotated correctly, keep their dates, and transparent PNGs stay transparent (except in JPEG, where the background becomes white).
 - Errors are written to `.squish-errors.log` in the output folder.
+- **Privacy.** squish itself never phones home. The installer sends one anonymous ping when an install succeeds (OS, CPU type and version, no IP stored) so we can count installs; skip it with `curl -fsSL https://get.squish-compressor.com | SQUISH_NO_PING=1 bash`.
 
 ## Requirements
 
