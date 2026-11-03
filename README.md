@@ -6,7 +6,7 @@
 
 **Compress videos, images, PDFs and audio from your terminal.** Free and open source (MIT). Point it at a folder, answer a few questions (or just hit Enter), and get everything back smaller in a `compressed` folder. Originals are never touched.
 
-Website: **[squish-compressor.com](https://squish-compressor.com)** · Documentation: **[squish-compressor.com/docs](https://squish-compressor.com/docs/)** · News: [@romaincroisade](https://x.com/romaincroisade) on X.
+Website: **[squish-compressor.com](https://squish-compressor.com)** · Documentation: **[squish-compressor.com/docs](https://squish-compressor.com/docs/)** · Made by Romain Maxxing: [@romaincroisade](https://x.com/romaincroisade) on X · [@romainmaxxing](https://www.youtube.com/@romainmaxxing) on YouTube.
 
 ```
    ███████╗ ██████╗ ██╗   ██╗██╗███████╗██╗  ██╗
