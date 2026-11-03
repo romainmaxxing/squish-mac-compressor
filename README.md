@@ -6,7 +6,7 @@
 
 **Compress videos, images, PDFs and audio from your terminal.** Free and open source (MIT). Point it at a folder, answer a few questions (or just hit Enter), and get everything back smaller in a `compressed` folder. Originals are never touched.
 
-Website: **[squish-compressor.com](https://squish-compressor.com)** · News: [@romaincroisade](https://x.com/romaincroisade) on X.
+Website: **[squish-compressor.com](https://squish-compressor.com)** · Documentation: **[squish-compressor.com/docs](https://squish-compressor.com/docs/)** · News: [@romaincroisade](https://x.com/romaincroisade) on X.
 
 ```
    ███████╗ ██████╗ ██╗   ██╗██╗███████╗██╗  ██╗
@@ -16,7 +16,7 @@ Website: **[squish-compressor.com](https://squish-compressor.com)** · News: [@r
    ███████║╚██████╔╝╚██████╔╝██║███████║██║  ██║
    ╚══════╝ ╚══▀▀═╝  ╚═════╝ ╚═╝╚══════╝╚═╝  ╚═╝
 
-┌  squish — let's make things smaller
+┌  squish · let's make things smaller
 │
 ◆  Which folder do you want to compress?
 │  › /Users/alex/Movies/Vacation
@@ -55,10 +55,10 @@ squish -s 25 -t video ~/Clips   # make every video fit under 25 MB (Discord, ema
 
 | | What you can choose | Tool used |
 |---|---|---|
-| **Videos** — mp4, mov, mkv, avi, webm… | Balanced / Strong / Gentle / **Target size** · H.264 or H.265 · 1080p/720p/480p · keep or drop sound · normal or fast | FFmpeg |
-| **Images** — jpg, png, heic, webp, tiff, gif… | Keep format / JPEG / WebP · Balanced / Strong / Gentle · max 4K / 2560 / 1920 / 1280 px | macOS `sips`, FFmpeg, pngquant (if installed) |
+| **Videos**: mp4, mov, mkv, avi, webm… | Balanced / Strong / Gentle / **Target size** · H.264 or H.265 · 1080p/720p/480p · keep or drop sound · normal or fast | FFmpeg |
+| **Images**: jpg, png, heic, webp, tiff, gif… | Keep format / JPEG / WebP · Balanced / Strong / Gentle · max 4K / 2560 / 1920 / 1280 px | macOS `sips`, FFmpeg, pngquant (if installed) |
 | **PDFs** | Balanced (150 dpi) / Strong (72 dpi) / Gentle (300 dpi) | Ghostscript |
-| **Audio** — wav, flac, aiff, m4a, mp3… | MP3 / AAC / Opus · Balanced / Strong / Gentle | FFmpeg |
+| **Audio**: wav, flac, aiff, m4a, mp3… | MP3 / AAC / Opus · Balanced / Strong / Gentle | FFmpeg |
 
 ### Options
 
@@ -112,7 +112,7 @@ lands just under the limit. Videos already under the limit get the Balanced trea
 - **A file shows `couldn't compress this file`**: details are in `.squish-errors.log` in the output folder
   (often a damaged or password-protected file).
 - **No colours / no arrow keys**: when squish is not in a real terminal (or with `NO_COLOR=1`), it falls back
-  to plain text and numbered menus — type the number and press Enter.
+  to plain text and numbered menus: type the number and press Enter.
 - **iPhone HDR videos look a little washed out**: squish encodes in 8-bit SDR for maximum compatibility;
   keep the originals of HDR clips you care about.
 
@@ -124,9 +124,9 @@ squish --uninstall
 
 ## Contributing
 
-Bug reports, ideas and pull requests are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md).
+Bug reports, ideas and pull requests are welcome, see [CONTRIBUTING.md](CONTRIBUTING.md).
 The whole program is one readable bash script: [`squish`](squish).
 
 ## License
 
-MIT — see [LICENSE](LICENSE). squish drives [FFmpeg](https://ffmpeg.org), [Ghostscript](https://ghostscript.com) and [pngquant](https://pngquant.org), which are separate projects with their own licenses.
+MIT, see [LICENSE](LICENSE). squish drives [FFmpeg](https://ffmpeg.org), [Ghostscript](https://ghostscript.com) and [pngquant](https://pngquant.org), which are separate projects with their own licenses.
