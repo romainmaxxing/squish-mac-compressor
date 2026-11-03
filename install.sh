@@ -1,7 +1,7 @@
 #!/bin/bash
 #
 #  squish installer
-#    curl -fsSL https://raw.githubusercontent.com/romainmaxxing/squish-mac-compressor/main/install.sh | bash
+#    curl -fsSL https://get.squish-compressor.com | bash
 #
 #  Installs the `squish` command for the current user (no sudo needed).
 #

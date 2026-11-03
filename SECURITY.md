@@ -10,7 +10,7 @@ squish runs locally and sends nothing anywhere. It only connects to the internet
 You can always read the installer before running it:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/romainmaxxing/squish-mac-compressor/main/install.sh | less
+curl -fsSL https://get.squish-compressor.com | less
 ```
 
 ## Reporting a vulnerability

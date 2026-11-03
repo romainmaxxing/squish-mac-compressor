@@ -35,7 +35,7 @@
 ## Install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/romainmaxxing/squish-mac-compressor/main/install.sh | bash
+curl -fsSL https://get.squish-compressor.com | bash
 ```
 
 Works on **macOS** and **Linux**. No admin rights needed: `squish` goes in `~/.local/bin`.
