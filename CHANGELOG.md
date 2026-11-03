@@ -2,6 +2,12 @@
 
 All notable changes to squish. Versions follow [semantic versioning](https://semver.org).
 
+## Unreleased
+
+- Install line moved to `curl -fsSL https://get.squish-compressor.com | bash` (the GitHub raw URL still works).
+- The installer sends one anonymous ping when an install succeeds (OS, CPU type, version; no IP stored) to count
+  installs. Opt out with `SQUISH_NO_PING=1`. squish itself never phones home.
+
 ## [1.0.0] - 2026-11-02
 
 First public release.

@@ -65,8 +65,8 @@ original) or anything else (failure, logged to `.squish-errors.log`).
 
 ## Releasing
 
-1. Bump `VERSION="…"` at the top of `squish` (and the version shown on the website, repo
-   [squish-compressor-web](https://github.com/romainmaxxing/squish-compressor-web), if you want it to follow).
+1. Bump `VERSION="…"` at the top of `squish` (the website shows the version too; it is updated
+   separately).
 2. Add an entry to `CHANGELOG.md`.
 3. Push to `main`, then create a GitHub release `vX.Y.Z`.
 

@@ -6,7 +6,7 @@
 
 **Compress videos, images, PDFs and audio from your terminal.** Free and open source (MIT). Point it at a folder, answer a few questions (or just hit Enter), and get everything back smaller in a `compressed` folder. Originals are never touched.
 
-Website: **[squish-compressor.com](https://squish-compressor.com)** ([source](https://github.com/romainmaxxing/squish-compressor-web)).
+Website: **[squish-compressor.com](https://squish-compressor.com)** · News: [@romaincroisade](https://x.com/romaincroisade) on X.
 
 ```
    ███████╗ ██████╗ ██╗   ██╗██╗███████╗██╗  ██╗
@@ -126,7 +126,6 @@ squish --uninstall
 
 Bug reports, ideas and pull requests are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md).
 The whole program is one readable bash script: [`squish`](squish).
-The website lives in its own repo: [squish-compressor-web](https://github.com/romainmaxxing/squish-compressor-web).
 
 ## License
 
