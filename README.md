@@ -56,7 +56,7 @@ squish -b ~/Movies/Long         # quiet mode: low priority, the Mac stays cool (
 
 | | What you can choose | Tool used |
 |---|---|---|
-| **Videos**: mp4, mov, mkv, avi, webm… | Balanced / Strong / Gentle / **Target size** · H.264 or H.265 · 1080p/720p/480p · keep or drop sound · normal / fast / quiet / Mac video chip | FFmpeg |
+| **Videos**: mp4, mov, mkv, avi, webm… | Balanced / Strong / Gentle / **Target size** · H.264 or H.265 (smaller, 2-4x slower) · 1080p/720p/480p · keep or drop sound · normal / fast / quiet / Mac video chip | FFmpeg |
 | **Images**: jpg, png, heic, webp, tiff, gif… | Keep format / JPEG / WebP · Balanced / Strong / Gentle · max 4K / 2560 / 1920 / 1280 px | macOS `sips`, FFmpeg, pngquant (if installed) |
 | **PDFs** | Balanced (150 dpi) / Strong (72 dpi) / Gentle (300 dpi) | Ghostscript |
 | **Audio**: wav, flac, aiff, m4a, mp3… | MP3 / AAC / Opus · Balanced / Strong / Gentle | FFmpeg |

@@ -489,7 +489,7 @@ video_settings() {
   if [ "$V_MODE" != target ] && [ $x265 = 1 ]; then
     menu "Video format?" 1 \
       "H.264  — MP4 that plays everywhere" \
-      "H.265  — ~40% smaller again; Apple & recent devices"
+      "H.265  — ~40% smaller again, but 2-4x slower to encode; Apple & recent devices"
     [ "$PICK" = 2 ] && V_CODEC=h265
   fi
   menu "Resolution?" 1 "Keep original" "1080p — max" "720p — max" "480p — max"
