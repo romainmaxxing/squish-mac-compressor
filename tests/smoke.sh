@@ -50,7 +50,13 @@ mkdir "$T/same" && cp "$T/in/photo.jpg" "$T/same/" && a=$(cksum < "$T/same/photo
 "$SH" "$SQUISH" -y -o "$T/same" "$T/same" > /dev/null 2>&1
 check "-o = source folder is safe"   '[ "$(cksum < "$T/same/photo.jpg")" = "$a" ] && [ -s "$T/same/photo-2.jpg" ]'
 
-# 5. command line
+# 5. background mode and the Mac's video chip (falls back to the normal encoder when there is none)
+"$SH" "$SQUISH" -y -b -o "$T/bg" "$T/in/clip.mov" > /dev/null 2>&1
+check "-b (background) video"        '[ -s "$T/bg/clip.mp4" ] && [ $(size "$T/bg/clip.mp4") -lt $(size "$T/in/clip.mov") ]'
+"$SH" "$SQUISH" -y --hardware -o "$T/hw" "$T/in/clip.mov" > /dev/null 2>&1
+check "--hardware video"             '[ -s "$T/hw/clip.mp4" ] && [ $(size "$T/hw/clip.mp4") -lt $(size "$T/in/clip.mov") ]'
+
+# 6. command line
 check "--version"                    '"$SH" "$SQUISH" --version | grep -q "^squish [0-9]"'
 check "--help"                       '"$SH" "$SQUISH" --help | grep -q Usage'
 "$SH" "$SQUISH" --bogus > /dev/null 2>&1

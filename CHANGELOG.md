@@ -4,6 +4,12 @@ All notable changes to squish. Versions follow [semantic versioning](https://sem
 
 ## Unreleased
 
+- **Quiet mode** for long videos (`-b`, or "Quiet" in the Speed question): low priority on half the cores
+  (`taskpolicy -b` on macOS, so efficiency cores on Apple Silicon; `nice` on Linux). Same result, slower,
+  the computer stays cool.
+- **Mac video chip** (`--hardware`, or "Hardware" in the Speed question): VideoToolbox H.264 / H.265, very fast
+  and cool, slightly bigger files. Falls back to the normal encoder if it fails; not used for Target size.
+- On a Mac, squish keeps the computer awake while compressing (`caffeinate -i`).
 - Install line moved to `curl -fsSL https://get.squish-compressor.com | bash` (the GitHub raw URL still works).
 - The installer sends one anonymous ping when an install succeeds (OS, CPU type, version; no IP stored) to count
   installs. Opt out with `SQUISH_NO_PING=1`. squish itself never phones home.

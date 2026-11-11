@@ -269,6 +269,10 @@ ${B}Options${N}
                        next to the originals)
   -t, --type LIST      only these kinds: video,image,pdf,audio
   -s, --size MB        videos: aim for this file size (e.g. 25 for Discord)
+  -b, --background     go easy on the computer: low priority, half the cores,
+                       stays cool and quiet (slower)
+      --hardware       videos: use the Mac's video chip (very fast, stays cool,
+                       a bit bigger files)
       --update         update $NAME to the latest version
       --uninstall      remove $NAME
   -h, --help           show this help
@@ -435,10 +439,24 @@ duration_of() { # whole seconds (0 if unknown)
     | awk '{ printf "%d", $1*3600 + $2*60 + $3 }'
 }
 
+# Background mode (-b): every heavy tool runs at low priority on half the cores.
+# On a Mac, `taskpolicy -b` also keeps it on the efficiency cores of Apple Silicon.
+LOWP=(); FF_THREADS=()
+cpu_count() { sysctl -n hw.ncpu 2>/dev/null || getconf _NPROCESSORS_ONLN 2>/dev/null || echo 2; }
+background_mode() {
+  local n; n=$(( $(cpu_count) / 2 )); [ "$n" -lt 1 ] && n=1
+  FF_THREADS=(-threads "$n"); X265_POOLS=":pools=$n"
+  if is_mac && has taskpolicy; then LOWP=(taskpolicy -b); elif has nice; then LOWP=(nice -n 19); fi
+}
+
+# ffmpeg args with the thread limit inserted just before the output file (the last arg)
+ff_args() { FFA=("${@:1:$(($# - 1))}" "${FF_THREADS[@]}" "${!#}"); }
+
 run_ff() { # run_ff duration_seconds ffmpeg-args…   (shows a progress bar)
   local dur="$1" status; shift
   set -f
-  "$FFMPEG" -nostdin -hide_banner -loglevel error -y "$@" -progress pipe:1 -nostats 2>>"$ERRLOG" | {
+  ff_args "$@"
+  "${LOWP[@]}" "$FFMPEG" -nostdin -hide_banner -loglevel error -y "${FFA[@]}" -progress pipe:1 -nostats 2>>"$ERRLOG" | {
     while IFS='=' read -r k v; do
       case "$k" in out_time_us|out_time_ms)
         if [ "$dur" -gt 0 ] 2>/dev/null && [ "$v" -ge 0 ] 2>/dev/null; then bar $((v / 10000 / dur)); fi ;;
@@ -450,7 +468,7 @@ run_ff() { # run_ff duration_seconds ffmpeg-args…   (shows a progress bar)
   return $status
 }
 
-ff_quiet() { "$FFMPEG" -nostdin -hide_banner -loglevel error -y "$@" 2>>"$ERRLOG" </dev/null; }
+ff_quiet() { ff_args "$@"; "${LOWP[@]}" "$FFMPEG" -nostdin -hide_banner -loglevel error -y "${FFA[@]}" 2>>"$ERRLOG" </dev/null; }
 
 # ─────────────────────────────────────────────────────────────── video
 video_settings() {
@@ -478,8 +496,29 @@ video_settings() {
   case $PICK in 1) V_MAX=0 ;; 2) V_MAX=1080 ;; 3) V_MAX=720 ;; 4) V_MAX=480 ;; esac
   menu "Sound?" 1 "Keep" "Remove — silent videos are a bit smaller"
   [ "$PICK" = 2 ] && V_AUDIO=0 || V_AUDIO=1
-  menu "Speed?" 1 "Normal — best size for the quality" "Fast — 2-3x quicker, slightly bigger files"
-  [ "$PICK" = 2 ] && V_PRESET=veryfast || V_PRESET=medium
+  # The Mac's video chip (VideoToolbox): not for target size, which needs two passes
+  V_HW_ENC=""
+  if is_mac && [ "$V_MODE" != target ]; then
+    if [ $V_CODEC = h265 ]; then encoder_ok hevc_videotoolbox && V_HW_ENC=hevc_videotoolbox
+    else encoder_ok h264_videotoolbox && V_HW_ENC=h264_videotoolbox; fi
+  fi
+  if [ -n "$HARDWARE" ] && [ -z "$V_HW_ENC" ]; then
+    r_bar; r_warn "No usable video chip here$( [ "$V_MODE" = target ] && echo ' for a target size') — using the normal encoder."
+  fi
+  local def=1 opts=("Normal    — best size for the quality" "Fast      — 2-3x quicker, slightly bigger files"
+    "Quiet     — low priority in the background: stays cool and silent, slower")
+  [ -n "$BACKGROUND" ] && def=3
+  if [ -n "$V_HW_ENC" ]; then
+    opts+=("Hardware  — the Mac's video chip: very fast, stays cool, a bit bigger files")
+    [ -n "$HARDWARE" ] && def=4
+  fi
+  menu "Speed?" $def "${opts[@]}"
+  V_PRESET=medium; V_HW=""
+  case $PICK in
+    2) V_PRESET=veryfast ;;
+    3) [ -n "$BACKGROUND" ] || { BACKGROUND=1; background_mode; } ;;
+    4) V_HW=1 ;;
+  esac
 }
 
 video_summary() {
@@ -489,7 +528,31 @@ video_summary() {
   [ "$V_MAX" -gt 0 ] && s="$s, ${V_MAX}p max"
   [ "$V_AUDIO" = 0 ] && s="$s, no sound"
   [ "$V_PRESET" = veryfast ] && s="$s, fast"
+  [ -n "$V_HW" ] && s="$s, Mac video chip"
   printf '%s' "$s"
+}
+
+video_probe() { # → "width height fps kbps" of the first video stream (0 when unknown)
+  "$FFMPEG" -hide_banner -i "$1" 2>&1 | awk '
+    /Duration:/ && match($0, /bitrate: [0-9]+/) { tot = substr($0, RSTART + 9, RLENGTH - 9) }
+    /Stream.*Video:/ && !seen { seen = 1
+      if (match($0, / [0-9][0-9]+x[0-9][0-9]+/)) { split(substr($0, RSTART + 1, RLENGTH - 1), d, "x"); w = d[1]; h = d[2] }
+      if (match($0, /[0-9.]+ fps/)) fps = substr($0, RSTART, RLENGTH - 4)
+      if (match($0, /[0-9]+ kb\/s/)) vk = substr($0, RSTART, RLENGTH - 5) }
+    END { if (!vk) vk = tot; printf "%d %d %s %d", w, h, (fps ? fps : 0), vk }'
+}
+
+hw_bitrate() { # hw_bitrate width height fps source_kbps mode → kbps for the video chip
+  awk -v w="$1" -v h="$2" -v fps="$3" -v vk="$4" -v mode="$5" -v max="$V_MAX" -v codec="$V_CODEC" 'BEGIN {
+    if (w <= 0 || h <= 0) { w = 1920; h = 1080 }
+    s = (w < h) ? w : h; if (max > 0 && s > max) { w *= max / s; h *= max / s }
+    if (fps <= 0) fps = 30; if (fps > 60) fps = 60
+    bpp = (mode == "strong") ? 0.04 : (mode == "gentle") ? 0.10 : 0.06   # bits per pixel, H.265
+    if (codec == "h264") bpp *= 1.6
+    br = w * h * fps * bpp / 1000
+    if (vk > 0 && br > vk * 0.7) br = vk * 0.7
+    if (br < 300) br = 300
+    printf "%d", br }'
 }
 
 compress_video() { # in out
@@ -525,9 +588,18 @@ compress_video() { # in out
     local s=$?; BAR_LABEL=""; rm -f "$passlog"*; return $s
   fi
 
+  if [ -n "$V_HW" ] && [ "$mode" != target ]; then
+    # The video chip has no CRF here: bitrate from the picture size, frame rate and preset.
+    # shellcheck disable=SC2046
+    br="$(hw_bitrate $(video_probe "$in") "$mode")"
+    local HWO=(-c:v "$V_HW_ENC" -b:v "${br}k"); [ "$V_CODEC" = h265 ] && HWO+=(-tag:v hvc1)
+    run_ff "$dur" -i "$in" -map 0:v:0 "${AUD[@]}" "${HWO[@]}" -pix_fmt yuv420p -vf "$vf" -movflags +faststart "$out" && return 0
+    echo "video chip failed — falling back to the normal encoder" >>"$ERRLOG"
+  fi
+
   if [ "$V_CODEC" = h265 ]; then
     case $mode in balanced) crf=28 ;; strong) crf=32 ;; gentle) crf=24 ;; esac
-    run_ff "$dur" -i "$in" -map 0:v:0 "${AUD[@]}" -c:v libx265 -crf $crf -tag:v hvc1 -x265-params log-level=error \
+    run_ff "$dur" -i "$in" -map 0:v:0 "${AUD[@]}" -c:v libx265 -crf $crf -tag:v hvc1 -x265-params "log-level=error$X265_POOLS" \
       -preset "$V_PRESET" -pix_fmt yuv420p -vf "$vf" -movflags +faststart "$out"
   else
     case $mode in balanced) crf=24 ;; strong) crf=28 ;; gentle) crf=20 ;; esac
@@ -677,7 +749,7 @@ pdf_summary() { printf '%s' "$P_LVL"; }
 
 compress_pdf() { # in out
   [ -n "$LIVE" ] && printf '%s   %s%s' "$CLR" "${D}working…" "${N}"
-  "$GS" -sDEVICE=pdfwrite -dCompatibilityLevel=1.5 -dPDFSETTINGS=/$P_SET -dNOPAUSE -dQUIET -dBATCH -dSAFER \
+  "${LOWP[@]}" "$GS" -sDEVICE=pdfwrite -dCompatibilityLevel=1.5 -dPDFSETTINGS=/$P_SET -dNOPAUSE -dQUIET -dBATCH -dSAFER \
     -dDetectDuplicateImages=true -dCompressFonts=true -sOutputFile="$2" "$1" </dev/null >>"$ERRLOG" 2>&1
 }
 
@@ -713,7 +785,7 @@ compress_audio() { # in out
 }
 
 # ═══════════════════════════════════════════════════════════════ main
-OUTPUT=""; RECURSIVE=""; ASSUME_YES=""; TYPES=""; TARGET_MB=""
+OUTPUT=""; RECURSIVE=""; ASSUME_YES=""; TYPES=""; TARGET_MB=""; BACKGROUND=""; HARDWARE=""; X265_POOLS=""
 ARGS=()
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -726,6 +798,8 @@ while [ $# -gt 0 ]; do
     -o|--output) shift; OUTPUT="$1" ;;
     -t|--type) shift; TYPES="$(lower "$1")" ;;
     -s|--size) shift; TARGET_MB="${1%[mM][bB]}" ;;
+    -b|--background) BACKGROUND=1 ;;
+    --hardware) HARDWARE=1 ;;
     --) shift; while [ $# -gt 0 ]; do ARGS+=("$1"); shift; done; break ;;
     -*) err "Unknown option: $1  (see $NAME --help)"; exit 2 ;;
     *) ARGS+=("$1") ;;
@@ -733,6 +807,7 @@ while [ $# -gt 0 ]; do
   shift
 done
 if [ -n "$OUTPUT" ]; then OUTPUT="$(clean_path "$OUTPUT")"; mkdir -p "$OUTPUT" && OUTPUT="$(cd "$OUTPUT" && pwd)" || { err "Can't use output folder $OUTPUT"; exit 1; }; fi
+[ -n "$BACKGROUND" ] && background_mode
 if [ -n "$TARGET_MB" ] && ! printf '%s' "$TARGET_MB" | grep -Eq '^[0-9]+([.][0-9]+)?$'; then err "--size expects a number of MB, e.g. 25"; exit 2; fi
 
 banner
@@ -815,6 +890,7 @@ else r_line "${D}output${N}   ${INFO}$OUT_DIR_NAME/${N} next to the originals ${
 [ $DO_I -gt 0 ] && r_line "${D}images${N}   $(image_summary)"
 [ $DO_P -gt 0 ] && r_line "${D}pdfs${N}     $(pdf_summary)"
 [ $DO_A -gt 0 ] && r_line "${D}audio${N}    $(audio_summary)"
+[ -n "$BACKGROUND" ] && r_line "${D}mode${N}     quiet ${D}(low priority, $(( ${FF_THREADS[1]:-2} )) cores — slower, stays cool)${N}"
 if [ -z "$ASSUME_YES" ]; then
   NSEL=0
   for i in "${!KINDS[@]}"; do case "${KINDS[$i]}" in video) [ $DO_V -gt 0 ] ;; image) [ $DO_I -gt 0 ] ;; pdf) [ $DO_P -gt 0 ] ;; audio) [ $DO_A -gt 0 ] ;; esac && NSEL=$((NSEL + 1)); done
@@ -833,6 +909,8 @@ on_interrupt() {
   exit 130
 }
 trap on_interrupt INT TERM
+# Keep the Mac awake (not the screen) while working; caffeinate stops with squish.
+is_mac && has caffeinate && { caffeinate -i -w $$ >/dev/null 2>&1 & }
 
 TOTAL=0
 for i in "${!FILES[@]}"; do

@@ -51,11 +51,12 @@ squish ~/Movies/Trip            # compress a folder
 squish clip.mov photo.heic      # or specific files
 squish -y -r ~/Pictures         # everything, subfolders included, recommended settings
 squish -s 25 -t video ~/Clips   # make every video fit under 25 MB (Discord, email…)
+squish -b ~/Movies/Long         # quiet mode: low priority, the Mac stays cool (slower)
 ```
 
 | | What you can choose | Tool used |
 |---|---|---|
-| **Videos**: mp4, mov, mkv, avi, webm… | Balanced / Strong / Gentle / **Target size** · H.264 or H.265 · 1080p/720p/480p · keep or drop sound · normal or fast | FFmpeg |
+| **Videos**: mp4, mov, mkv, avi, webm… | Balanced / Strong / Gentle / **Target size** · H.264 or H.265 · 1080p/720p/480p · keep or drop sound · normal / fast / quiet / Mac video chip | FFmpeg |
 | **Images**: jpg, png, heic, webp, tiff, gif… | Keep format / JPEG / WebP · Balanced / Strong / Gentle · max 4K / 2560 / 1920 / 1280 px | macOS `sips`, FFmpeg, pngquant (if installed) |
 | **PDFs** | Balanced (150 dpi) / Strong (72 dpi) / Gentle (300 dpi) | Ghostscript |
 | **Audio**: wav, flac, aiff, m4a, mp3… | MP3 / AAC / Opus · Balanced / Strong / Gentle | FFmpeg |
@@ -68,6 +69,8 @@ squish -s 25 -t video ~/Clips   # make every video fit under 25 MB (Discord, ema
 -o, --output DIR   where to put results (default: "compressed" next to the originals)
 -t, --type LIST    only these kinds: video,image,pdf,audio
 -s, --size MB      videos: aim for this file size
+-b, --background   go easy on the computer: low priority, half the cores (slower)
+    --hardware     videos: use the Mac's video chip (very fast, cool, a bit bigger)
     --update       update to the latest version
     --uninstall    remove squish
 -h, --help         help      -V, --version   version
@@ -104,6 +107,20 @@ On a Mac, JPEG and HEIC photos are handled by `sips`, which is built into macOS.
 
 **Target size** (`-s 25`) computes the bitrate from the video length and encodes in two passes, so the file
 lands just under the limit. Videos already under the limit get the Balanced treatment.
+
+## Long videos without a hot Mac
+
+Encoding video uses every core at full speed, so a long video makes a laptop hot and noisy. Two ways out,
+in the **Speed?** question (or on the command line):
+
+- **Quiet** (`-b`): same quality and size, but squish runs in the background on half the cores. On a Mac it
+  runs with the background policy (`taskpolicy -b`), which on Apple Silicon keeps it on the efficiency cores.
+  The Mac stays cool, quiet and usable; compression takes 2 to 4 times longer. On Linux it uses `nice`.
+- **Hardware** (`--hardware`, Mac only): the Mac's video chip (VideoToolbox) does the encoding. Very fast and
+  barely warm, but files are a bit bigger than with the normal encoder at the same quality. Not used for
+  Target size (which needs two passes); if the chip is missing or fails, squish uses the normal encoder.
+
+While it works, squish keeps the Mac from going to sleep (`caffeinate`; closing the lid still sleeps it).
 
 ## Troubleshooting
 
