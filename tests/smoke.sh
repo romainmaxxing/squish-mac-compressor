@@ -56,7 +56,12 @@ check "-b (background) video"        '[ -s "$T/bg/clip.mp4" ] && [ $(size "$T/bg
 "$SH" "$SQUISH" -y --hardware -o "$T/hw" "$T/in/clip.mov" > /dev/null 2>&1
 check "--hardware video"             '[ -s "$T/hw/clip.mp4" ] && [ $(size "$T/hw/clip.mp4") -lt $(size "$T/in/clip.mov") ]'
 
-# 6. command line
+# 6. time estimate (only for more than a minute of video)
+ff -f lavfi -i testsrc2=s=320x180:r=25:d=70 -c:v libx264 -crf 10 "$T/long.mov"
+"$SH" "$SQUISH" -y -o "$T/est" "$T/long.mov" > "$T/est.log" 2>&1
+check "time estimate in the plan"    'grep -q "time .*about .* for the videos" "$T/est.log" && [ -s "$T/est/long.mp4" ]'
+
+# 7. command line
 check "--version"                    '"$SH" "$SQUISH" --version | grep -q "^squish [0-9]"'
 check "--help"                       '"$SH" "$SQUISH" --help | grep -q Usage'
 "$SH" "$SQUISH" --bogus > /dev/null 2>&1

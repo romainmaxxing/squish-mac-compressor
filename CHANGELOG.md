@@ -9,6 +9,11 @@ All notable changes to squish. Versions follow [semantic versioning](https://sem
   the computer stays cool.
 - **Mac video chip** (`--hardware`, or "Hardware" in the Speed question): VideoToolbox H.264 / H.265, very fast
   and cool, slightly bigger files. Falls back to the normal encoder if it fails; not used for Target size.
+- **Time estimate before starting**: with more than a minute of video, squish times a ~12 s sample with the chosen
+  settings and shows "about 2 h 30 for the videos, done around 14:35" in the plan; each video shows its own
+  estimate and the time left for all videos, corrected as files finish.
+- Live time left now appears after a few seconds (was: after 3 %), stays steady, shows the encoding speed, counts
+  pass 2 of Target size, and long times read 1:40:05 instead of 100:05.
 - The H.265 choice now says it is 2-4x slower to encode.
 - On a Mac, squish keeps the computer awake while compressing (`caffeinate -i`).
 - Install line moved to `curl -fsSL https://get.squish-compressor.com | bash` (the GitHub raw URL still works).

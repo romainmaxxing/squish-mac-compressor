@@ -120,6 +120,11 @@ in the **Speed?** question (or on the command line):
   barely warm, but files are a bit bigger than with the normal encoder at the same quality. Not used for
   Target size (which needs two passes); if the chip is missing or fails, squish uses the normal encoder.
 
+**How long will it take?** When there is more than a minute of video, squish encodes a short sample with your
+settings before starting and shows the estimate in the plan (`about 2 h 30 for the videos, done around 14:35`),
+so you can still pick Quiet or Hardware. While it works, each video shows its time left and the encoding speed
+(`speed 0.6x` = 0.6 second of video per second), and with several videos, the time left for all of them.
+
 While it works, squish keeps the Mac from going to sleep (`caffeinate`; closing the lid still sleeps it).
 
 ## Troubleshooting

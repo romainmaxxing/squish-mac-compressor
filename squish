@@ -55,7 +55,19 @@ filesize() { wc -c < "$1" | tr -d ' '; }
 plural() { [ "$1" -eq 1 ] && printf '%s %s' "$1" "$2" || printf '%s %ss' "$1" "$2"; }
 pct_saved() { local p=$((100 - $2 * 100 / $1)); [ $p -ge 100 ] && p=99; echo $p; }
 term_cols() { local c; c="$(tput cols 2>/dev/null)"; [ "${c:-0}" -gt 0 ] 2>/dev/null && echo "$c" || echo 80; }
-mmss() { printf '%d:%02d' $(($1 / 60)) $(($1 % 60)); }
+mmss() { # 75 → 1:15, 4500 → 1:15:00
+  if [ "$1" -ge 3600 ]; then printf '%d:%02d:%02d' $(($1 / 3600)) $(($1 % 3600 / 60)) $(($1 % 60))
+  else printf '%d:%02d' $(($1 / 60)) $(($1 % 60)); fi
+}
+about() { # rough duration for estimates: 40 s, 12 min, 2 h 05
+  if [ "$1" -lt 60 ]; then printf '%d s' "$1"
+  elif [ "$1" -lt 3600 ]; then printf '%d min' $((($1 + 59) / 60))
+  else printf '%d h %02d' $(($1 / 3600)) $(($1 % 3600 / 60)); fi
+}
+clock_in() { # clock_in seconds → time of day then (14:35)
+  local t=$(($(date +%s) + $1))
+  date -r "$t" +%H:%M 2>/dev/null || date -d "@$t" +%H:%M 2>/dev/null
+}
 
 human() {
   awk -v b="$1" 'BEGIN {
@@ -137,13 +149,21 @@ grad_bar() { # grad_bar filled total → gradient blocks, then a dim track
 }
 
 SPIN=(⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏); SPIN_I=0
-bar() { # bar percent — live progress line with time left
+bar() { # bar percent [done_ms total_s] — live progress line with time left and speed
   [ -n "$LIVE" ] || return 0
-  local pct=$1 now el left=""
+  local pct=$1 pos=${2:-0} dur=${3:-0} el left="" rem sp
   [ "$pct" -gt 100 ] && pct=100; [ "$pct" -lt 0 ] && pct=0
   SPIN_I=$(((SPIN_I + 1) % 10))
-  now=$(date +%s); el=$((now - ${BAR_T0:-now}))
-  [ "$pct" -ge 3 ] && [ $el -ge 2 ] && left="  ${D}$(mmss $((el * (100 - pct) / pct))) left${N}"
+  el=$((SECONDS - ${BAR_T0:-SECONDS}))
+  if [ "$pos" -gt 0 ] && [ "$dur" -gt 0 ] && [ $el -ge 5 ]; then
+    # from the exact position in the video, so the estimate shows early and stays steady
+    rem=$((el * (dur * 1000 - pos) / pos)); [ $rem -lt 0 ] && rem=0
+    [ -n "$BAR_PASS1" ] && rem=$((rem + el * dur * 1000 / pos))   # pass 2 still to come
+    sp=$((pos / el / 100))
+    left="  ${D}$(mmss $rem) left · speed $((sp / 10)).$((sp % 10))x${N}"
+  elif [ "$pct" -ge 3 ] && [ $el -ge 2 ]; then
+    left="  ${D}$(mmss $((el * (100 - pct) / pct))) left${N}"
+  fi
   printf '%s%s│%s  %s%s%s %s %s%3d%%%s%s%s' "$CLR" "$RAIL" "$N" "$A" "${SPIN[$SPIN_I]}" "$N" \
     "$(grad_bar $((pct * 30 / 100)) 30)" "$B" "$pct" "$N" "$left" "${BAR_LABEL:+  ${D}$BAR_LABEL${N}}"
 }
@@ -456,10 +476,18 @@ run_ff() { # run_ff duration_seconds ffmpeg-args…   (shows a progress bar)
   local dur="$1" status; shift
   set -f
   ff_args "$@"
+  local t0=$SECONDS
   "${LOWP[@]}" "$FFMPEG" -nostdin -hide_banner -loglevel error -y "${FFA[@]}" -progress pipe:1 -nostats 2>>"$ERRLOG" | {
     while IFS='=' read -r k v; do
-      case "$k" in out_time_us|out_time_ms)
-        if [ "$dur" -gt 0 ] 2>/dev/null && [ "$v" -ge 0 ] 2>/dev/null; then bar $((v / 10000 / dur)); fi ;;
+      case "$k" in
+        out_time_us|out_time_ms)
+          [ -z "$BENCH" ] && [ "$dur" -gt 0 ] 2>/dev/null && [ "$v" -ge 0 ] 2>/dev/null && bar $((v / 10000 / dur)) $((v / 1000)) "$dur" ;;
+        speed)
+          # sample run (estimate): keep the latest speed; stop after BENCH seconds (ffmpeg ends on the closed pipe)
+          if [ -n "$BENCH" ]; then
+            v="${v%x}"; v="${v// /}"; case "$v" in [0-9]*) printf '%s' "$v" > "$WORK/speed" ;; esac
+            [ $((SECONDS - t0)) -ge "$BENCH" ] && break
+          fi ;;
       esac
     done
   }
@@ -532,18 +560,19 @@ video_summary() {
   printf '%s' "$s"
 }
 
-video_probe() { # → "width height fps kbps" of the first video stream (0 when unknown)
+video_probe() { # → "width height fps kbps seconds" of the first video stream (0 when unknown)
   "$FFMPEG" -hide_banner -i "$1" 2>&1 | awk '
+    /Duration: [0-9]/ && !dur { split(substr($0, index($0, "Duration: ") + 10, 11), t, ":"); dur = t[1] * 3600 + t[2] * 60 + t[3] }
     /Duration:/ && match($0, /bitrate: [0-9]+/) { tot = substr($0, RSTART + 9, RLENGTH - 9) }
     /Stream.*Video:/ && !seen { seen = 1
       if (match($0, / [0-9][0-9]+x[0-9][0-9]+/)) { split(substr($0, RSTART + 1, RLENGTH - 1), d, "x"); w = d[1]; h = d[2] }
       if (match($0, /[0-9.]+ fps/)) fps = substr($0, RSTART, RLENGTH - 4)
       if (match($0, /[0-9]+ kb\/s/)) vk = substr($0, RSTART, RLENGTH - 5) }
-    END { if (!vk) vk = tot; printf "%d %d %s %d", w, h, (fps ? fps : 0), vk }'
+    END { if (!vk) vk = tot; printf "%d %d %s %d %d", w, h, (fps ? fps : 0), vk, dur }'
 }
 
-hw_bitrate() { # hw_bitrate width height fps source_kbps mode → kbps for the video chip
-  awk -v w="$1" -v h="$2" -v fps="$3" -v vk="$4" -v mode="$5" -v max="$V_MAX" -v codec="$V_CODEC" 'BEGIN {
+hw_bitrate() { # hw_bitrate width height fps source_kbps seconds mode → kbps for the video chip
+  awk -v w="$1" -v h="$2" -v fps="$3" -v vk="$4" -v mode="$6" -v max="$V_MAX" -v codec="$V_CODEC" 'BEGIN {
     if (w <= 0 || h <= 0) { w = 1920; h = 1080 }
     s = (w < h) ? w : h; if (max > 0 && s > max) { w *= max / s; h *= max / s }
     if (fps <= 0) fps = 30; if (fps > 60) fps = 60
@@ -579,11 +608,12 @@ compress_video() { # in out
       TARGET_NOTE="too long for ${TARGET_MB} MB at good quality — did its best"
     fi
     passlog="$WORK/pass"
-    BAR_LABEL="pass 1/2"
-    run_ff "$dur" -i "$in" -map 0:v:0 -c:v libx264 -b:v "${br}k" -preset "$V_PRESET" -pix_fmt yuv420p \
-      -vf "$vf" -pass 1 -passlogfile "$passlog" -an -f mp4 /dev/null || return 1
-    BAR_LABEL="pass 2/2"
-    run_ff "$dur" -i "$in" -map 0:v:0 "${AUD[@]}" -c:v libx264 -b:v "${br}k" -maxrate "$((br * 3 / 2))k" -bufsize "$((br * 2))k" \
+    BAR_LABEL="pass 1/2"; BAR_PASS1=1
+    run_ff "$dur" "${V_IN[@]}" -i "$in" -map 0:v:0 -c:v libx264 -b:v "${br}k" -preset "$V_PRESET" -pix_fmt yuv420p \
+      -vf "$vf" -pass 1 -passlogfile "$passlog" -an -f mp4 /dev/null || { BAR_PASS1=""; return 1; }
+    BAR_PASS1=""; [ -n "$BENCH" ] && return 0
+    BAR_LABEL="pass 2/2"; BAR_T0=$SECONDS
+    run_ff "$dur" "${V_IN[@]}" -i "$in" -map 0:v:0 "${AUD[@]}" -c:v libx264 -b:v "${br}k" -maxrate "$((br * 3 / 2))k" -bufsize "$((br * 2))k" \
       -preset "$V_PRESET" -pix_fmt yuv420p -vf "$vf" -pass 2 -passlogfile "$passlog" -movflags +faststart "$out"
     local s=$?; BAR_LABEL=""; rm -f "$passlog"*; return $s
   fi
@@ -593,17 +623,18 @@ compress_video() { # in out
     # shellcheck disable=SC2046
     br="$(hw_bitrate $(video_probe "$in") "$mode")"
     local HWO=(-c:v "$V_HW_ENC" -b:v "${br}k"); [ "$V_CODEC" = h265 ] && HWO+=(-tag:v hvc1)
-    run_ff "$dur" -i "$in" -map 0:v:0 "${AUD[@]}" "${HWO[@]}" -pix_fmt yuv420p -vf "$vf" -movflags +faststart "$out" && return 0
+    run_ff "$dur" "${V_IN[@]}" -i "$in" -map 0:v:0 "${AUD[@]}" "${HWO[@]}" -pix_fmt yuv420p -vf "$vf" -movflags +faststart "$out" && return 0
+    [ -n "$BENCH" ] && return 1
     echo "video chip failed — falling back to the normal encoder" >>"$ERRLOG"
   fi
 
   if [ "$V_CODEC" = h265 ]; then
     case $mode in balanced) crf=28 ;; strong) crf=32 ;; gentle) crf=24 ;; esac
-    run_ff "$dur" -i "$in" -map 0:v:0 "${AUD[@]}" -c:v libx265 -crf $crf -tag:v hvc1 -x265-params "log-level=error$X265_POOLS" \
+    run_ff "$dur" "${V_IN[@]}" -i "$in" -map 0:v:0 "${AUD[@]}" -c:v libx265 -crf $crf -tag:v hvc1 -x265-params "log-level=error$X265_POOLS" \
       -preset "$V_PRESET" -pix_fmt yuv420p -vf "$vf" -movflags +faststart "$out"
   else
     case $mode in balanced) crf=24 ;; strong) crf=28 ;; gentle) crf=20 ;; esac
-    run_ff "$dur" -i "$in" -map 0:v:0 "${AUD[@]}" -c:v libx264 -crf $crf \
+    run_ff "$dur" "${V_IN[@]}" -i "$in" -map 0:v:0 "${AUD[@]}" -c:v libx264 -crf $crf \
       -preset "$V_PRESET" -pix_fmt yuv420p -vf "$vf" -movflags +faststart "$out"
   fi
 }
@@ -784,8 +815,48 @@ compress_audio() { # in out
   run_ff "$dur" -i "$in" -map 0:a:0 -c:a "$codec" -b:a "$br" -map_metadata 0 "$out"
 }
 
+# ─────────────────────────────────────────────────────────────── time estimate
+# Encodes a short sample of the biggest video with the chosen settings, then scales the measured
+# speed to every video by its length and picture size (pixels per second after resizing).
+pixrate() { # pixrate width height fps → thousands of output pixels per second of video
+  awk -v w="$1" -v h="$2" -v fps="$3" -v max="$V_MAX" 'BEGIN {
+    if (w <= 0 || h <= 0) { w = 1920; h = 1080 }
+    s = (w < h) ? w : h; if (max > 0 && s > max) { w *= max / s; h *= max / s }
+    if (fps <= 0) fps = 30
+    printf "%d", w * h * fps / 1000 + 1 }'
+}
+
+estimate_videos() {
+  local i ref="" refw=0 total=0 w speed
+  EST=(); EST_TOTAL=0; VDUR=(); VPR=()
+  for i in "${!FILES[@]}"; do
+    [ "${KINDS[$i]}" = video ] || continue
+    # shellcheck disable=SC2046
+    set -- $(video_probe "${FILES[$i]}")
+    VDUR[$i]=${5:-0}; VPR[$i]=$(pixrate "$1" "$2" "$3")
+    total=$((total + VDUR[i])); w=$((VDUR[i] * VPR[i] / 1000))
+    [ $w -ge $refw ] && { refw=$w; ref=$i; }
+  done
+  [ -n "$ref" ] && [ $total -ge 60 ] || return 0   # short videos: not worth a sample
+  [ -n "$LIVE" ] && printf '%s%s│%s  %s%s%s %s' "$CLR" "$RAIL" "$N" "$A" "${SPIN[0]}" "$N" "${D}timing a short sample to estimate how long it takes…${N}"
+  WORK="$(mktemp -d)"; ERRLOG=/dev/null
+  trap 'rm -rf "$WORK"; printf "\n"; exit 130' INT TERM
+  V_IN=(-ss $((VDUR[ref] / 3)) -t 30); BENCH=12
+  compress_video "${FILES[$ref]}" "$WORK/sample.mp4" >/dev/null 2>&1
+  speed="$(cat "$WORK/speed" 2>/dev/null)"
+  V_IN=(); BENCH=""; rm -rf "$WORK"; WORK=""; trap - INT TERM
+  [ -n "$LIVE" ] && printf '%s' "$CLR"
+  awk -v s="$speed" 'BEGIN { exit !(s > 0) }' || return 0
+  for i in "${!VDUR[@]}"; do
+    EST[$i]=$(awk -v d="${VDUR[$i]}" -v p="${VPR[$i]}" -v rp="${VPR[$ref]}" -v s="$speed" -v two="$( [ "$V_MODE" = target ] && echo 1 )" \
+      'BEGIN { e = d * p / (rp * s); if (two) e *= 2; printf "%d", e + 1 }')
+    EST_TOTAL=$((EST_TOTAL + EST[i]))
+  done
+}
+
 # ═══════════════════════════════════════════════════════════════ main
 OUTPUT=""; RECURSIVE=""; ASSUME_YES=""; TYPES=""; TARGET_MB=""; BACKGROUND=""; HARDWARE=""; X265_POOLS=""
+V_IN=(); BENCH=""; BAR_PASS1=""; EST=(); EST_TOTAL=0
 ARGS=()
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -882,6 +953,8 @@ if [ $((DO_V + DO_I + DO_P + DO_A)) -eq 0 ]; then err "Nothing left to do withou
 [ $DO_P -gt 0 ] && pdf_settings
 [ $DO_A -gt 0 ] && audio_settings
 
+[ $DO_V -gt 0 ] && estimate_videos
+
 r_bar
 r_done "${B}The plan${N}"
 if [ -n "$OUTPUT" ]; then r_line "${D}output${N}   ${INFO}$OUTPUT${N}"
@@ -890,6 +963,7 @@ else r_line "${D}output${N}   ${INFO}$OUT_DIR_NAME/${N} next to the originals ${
 [ $DO_I -gt 0 ] && r_line "${D}images${N}   $(image_summary)"
 [ $DO_P -gt 0 ] && r_line "${D}pdfs${N}     $(pdf_summary)"
 [ $DO_A -gt 0 ] && r_line "${D}audio${N}    $(audio_summary)"
+[ "$EST_TOTAL" -gt 0 ] && r_line "${D}time${N}     about ${B}$(about "$EST_TOTAL")${N} for the videos ${D}(done around $(clock_in "$EST_TOTAL"), measured on a sample)${N}"
 [ -n "$BACKGROUND" ] && r_line "${D}mode${N}     quiet ${D}(low priority, $(( ${FF_THREADS[1]:-2} )) cores — slower, stays cool)${N}"
 if [ -z "$ASSUME_YES" ]; then
   NSEL=0
@@ -917,6 +991,7 @@ for i in "${!FILES[@]}"; do
   case "${KINDS[$i]}" in video) [ $DO_V -gt 0 ] ;; image) [ $DO_I -gt 0 ] ;; pdf) [ $DO_P -gt 0 ] ;; audio) [ $DO_A -gt 0 ] ;; esac && TOTAL=$((TOTAL + 1))
 done
 
+EST_LEFT=$EST_TOTAL; ACT_V=0; EST_V=0
 DONE=0; KEPT=0; SKIP=0; FAIL=0; BEFORE=0; AFTER=0; OUT_DIRS=$'\n'; LOGFILES=""
 START=$(date +%s); n=0
 r_bar
@@ -934,8 +1009,17 @@ for i in "${!FILES[@]}"; do
   DDIR="$(dirname "$DEST")"
   REL="${IN#"$ROOT"/}"
 
+  hint=""
+  if [ "$KIND" = video ] && [ -n "${EST[$i]}" ]; then
+    # all videos left: the estimate, corrected by how the finished ones actually went
+    left_all=$EST_LEFT; [ $EST_V -ge 60 ] && left_all=$((EST_LEFT * ACT_V / EST_V))
+    hint="  ${D}about $(about "${EST[$i]}")"
+    [ "$left_all" -gt "${EST[$i]}" ] && hint="$hint · $(about "$left_all") for all videos left"
+    hint="$hint${N}"
+    EST_LEFT=$((EST_LEFT - EST[i]))
+  fi
   r_bar
-  r_line "${B}$REL${N}  ${RAIL}$n/$TOTAL${N}"
+  r_line "${B}$REL${N}  ${RAIL}$n/$TOTAL${N}$hint"
   KEEP="$DDIR/$(basename "$IN")"   # where an already-small original is copied
   [ "$KEEP" = "$IN" ] && KEEP="$DEST"
   if [ -e "$DEST" ] || { [ "$KEEP" != "$DEST" ] && [ -e "$KEEP" ] && [ "$(kind_of "$KEEP")" = "$KIND" ] && [ "$(filesize "$KEEP")" = "$(filesize "$IN")" ]; }; then
@@ -947,7 +1031,7 @@ for i in "${!FILES[@]}"; do
 
   CURRENT_TMP="$DDIR/.$(basename "$DEST").part.$EXT"
   : > "$ERRLOG"; TARGET_NOTE=""; BAR_LABEL=""
-  T0=$(date +%s); BAR_T0=$T0
+  T0=$(date +%s); BAR_T0=$SECONDS
   case "$KIND" in
     video) compress_video "$IN" "$CURRENT_TMP" ;;
     image) compress_image "$IN" "$CURRENT_TMP" ;;
@@ -955,6 +1039,7 @@ for i in "${!FILES[@]}"; do
     audio) compress_audio "$IN" "$CURRENT_TMP" ;;
   esac
   rc=$?
+  [ "$KIND" = video ] && [ -n "${EST[$i]}" ] && { ACT_V=$((ACT_V + $(date +%s) - T0)); EST_V=$((EST_V + EST[i])); }
   S_IN=$(filesize "$IN")
   if [ $rc -eq 0 ] && [ -s "$CURRENT_TMP" ]; then
     S_OUT=$(filesize "$CURRENT_TMP")
